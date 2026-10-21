@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Contratos de mensagens da Saga (comandos e eventos). Sem nenhuma dependência de propósito:
+    nada de MassTransit/MediatR aqui, só records. Quando o pacote compartilhado `GearFlow.Contracts`
+    existir (GitHub Packages), este projeto sai do repo e vira PackageReference. Namespace e nomes
+    das mensagens já seguem docs/fluxo-saga.md do gearflow-budget-service e a seção 5.1 do plano.
+  -->
+  <PropertyGroup>
+    <RootNamespace>GearFlow.Contracts</RootNamespace>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+<Project>
+
+  <!--
+    Propriedades comuns a todos os projetos (src + tests). Os .csproj não repetem
+    TargetFramework / Nullable / ImplicitUsings: herdam daqui.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Warnings do compilador (CS) são erros: o build é o linter. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Analisadores no nível mais recente; severidade baseline = suggestion (.editorconfig). -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>

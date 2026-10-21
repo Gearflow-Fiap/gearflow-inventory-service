@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GearFlow.Contracts/GearFlow.Contracts.csproj" />
+    <Project Path="src/GearFlow.Inventory.Api/GearFlow.Inventory.Api.csproj" />
+    <Project Path="src/GearFlow.Inventory.Application/GearFlow.Inventory.Application.csproj" />
+    <Project Path="src/GearFlow.Inventory.Domain/GearFlow.Inventory.Domain.csproj" />
+    <Project Path="src/GearFlow.Inventory.Infrastructure/GearFlow.Inventory.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GearFlow.Inventory.IntegrationTests/GearFlow.Inventory.IntegrationTests.csproj" />
+    <Project Path="tests/GearFlow.Inventory.UnitTests/GearFlow.Inventory.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/GearFlow.Inventory.SagaSimulator/GearFlow.Inventory.SagaSimulator.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,104 @@
+name: CI
+
+# Pipeline do Inventory Service: build, testes unitários com gate de cobertura (>= 80%, meta do desafio) e testes
+# de integração (Postgres + RabbitMQ + Mailpit reais, via Testcontainers).
+# Ainda faltam (fase 8 do plano): SonarCloud com quality gate, build/push da imagem no GHCR e
+# deploy automático no Kubernetes + smoke test em /health/ready.
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancela runs supersedidos da mesma ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: "10.0.x"
+  DOTNET_NOLOGO: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  COVERAGE_MIN: "0.80"
+
+jobs:
+  unit:
+    name: Build + testes unitários + cobertura
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('Directory.Packages.props') }}
+          restore-keys: nuget-
+
+      - name: Restore
+        run: dotnet restore GearFlow.Inventory.slnx
+
+      - name: Build (Release)
+        run: dotnet build GearFlow.Inventory.slnx -c Release --no-restore
+
+      - name: Testes unitários e de arquitetura, com cobertura
+        run: >
+          dotnet test tests/GearFlow.Inventory.UnitTests -c Release --no-build
+          --settings coverlet.runsettings
+          --collect:"XPlat Code Coverage"
+          --results-directory ./coverage/unit
+
+      - name: Gate de cobertura (unitários)
+        run: |
+          report=$(find coverage/unit -name coverage.cobertura.xml | head -1)
+          rate=$(grep -o 'line-rate="[0-9.]*"' "$report" | head -1 | grep -o '[0-9.]*')
+          echo "Cobertura de linhas dos testes unitários: $rate (mínimo: $COVERAGE_MIN)"
+          awk -v r="$rate" -v m="$COVERAGE_MIN" 'BEGIN { exit !(r >= m) }' \
+            || { echo "::error::Cobertura abaixo de $COVERAGE_MIN"; exit 1; }
+
+      - name: Publica a cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-unit
+          path: ./coverage/unit/**/coverage.cobertura.xml
+          if-no-files-found: ignore
+
+  integration:
+    name: Integração (Postgres + RabbitMQ + Mailpit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore GearFlow.Inventory.slnx
+
+      # O runner já tem Docker: o Testcontainers sobe o Postgres, o RabbitMQ e o Mailpit sozinho.
+      - name: Testes de integração com cobertura
+        run: >
+          dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release
+          --settings coverlet.runsettings
+          --collect:"XPlat Code Coverage"
+          --results-directory ./coverage/integration
+          --blame-hang-timeout 10m
+
+      - name: Publica a cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-integration
+          path: ./coverage/integration/**/coverage.cobertura.xml
+          if-no-files-found: ignore

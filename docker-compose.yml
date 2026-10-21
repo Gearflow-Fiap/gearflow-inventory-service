@@ -1,0 +1,38 @@
+# Dependências locais do Inventory Service. A API roda fora do compose (`dotnet run`).
+#   docker compose up -d
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: gearflow_inventory
+      POSTGRES_USER: gearflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gearflow_dev}
+    ports:
+      - "5433:5432"   # 5433 no host: evita colidir com um Postgres local na 5432
+    volumes:
+      - inventory-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gearflow -d gearflow_inventory"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # UI (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"     # UI web
+      - "1025:1025"     # SMTP
+
+volumes:
+  inventory-pg-data:

@@ -1,0 +1,23 @@
+# Line endings: LF no repositório e na árvore de trabalho, inclusive no Windows.
+# Arquivo com EOL misto transforma qualquer mudança de duas linhas num diff do arquivo inteiro.
+* text=auto eol=lf
+
+*.cs     text eol=lf
+*.csproj text eol=lf
+*.props  text eol=lf
+*.slnx   text eol=lf
+
+# Scripts copiados para dentro de containers Linux pelos Dockerfiles: CRLF quebra o shebang.
+*.sh text eol=lf
+
+# Scripts que só o interpretador do Windows executa continuam CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# `text=auto` já detecta binário; explícito onde erro seria caro (corrupção silenciosa).
+*.png binary
+*.ico binary
+*.jpg binary
+*.pfx binary
+*.snk binary

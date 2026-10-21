@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\GearFlow.Inventory.Domain\GearFlow.Inventory.Domain.csproj" />
+    <ProjectReference Include="..\GearFlow.Contracts\GearFlow.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GearFlow.Inventory.Infrastructure" />
+    <InternalsVisibleTo Include="GearFlow.Inventory.UnitTests" />
+    <InternalsVisibleTo Include="GearFlow.Inventory.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

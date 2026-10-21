@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Simulador do orquestrador da Saga (os-service): publica os comandos ReserveStock/ReleaseStock/ConsumeStock e
+    mostra as respostas do Inventory. Serve para testar e demonstrar o Inventory sem depender do os-service.
+    Usa o MassTransit e os mesmos GearFlow.Contracts, então fala exatamente o protocolo real.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>GearFlow.Inventory.SagaSimulator</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GearFlow.Contracts\GearFlow.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MassTransit.RabbitMQ" />
+  </ItemGroup>
+
+</Project>

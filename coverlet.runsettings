@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuração de cobertura (coverlet data collector, referenciado nos projetos de teste via
+  `coverlet.collector`). Meta do desafio: >= 80% por serviço.
+
+  Ficam FORA do denominador apenas código sem lógica testável: composition roots, migrations do EF,
+  código gerado e o projeto de contratos (só records de mensagem).
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+
+          <!--
+            Só instrumenta os assemblies do próprio serviço. Sem isso o coverlet reescreve também o MassTransit,
+            o EF Core, o Npgsql etc. (todo DLL com PDB): mais lento, relatório poluído e, no Windows com controle de
+            aplicativos ativo, DLLs reescritas podem ser bloqueadas e derrubar a suíte inteira.
+          -->
+          <Include>[GearFlow.Inventory.*]*</Include>
+
+          <!-- Assemblies fora do denominador -->
+          <Exclude>[*.UnitTests]*,[*.IntegrationTests]*,[*.BddTests]*,[GearFlow.Contracts]*</Exclude>
+
+          <!-- Arquivos fora do denominador: DDL gerado, código gerado, bootstrap -->
+          <ExcludeByFile>**/Migrations/*.cs,**/*.g.cs,**/*.Designer.cs,**/*.AssemblyInfo.cs,**/Program.cs</ExcludeByFile>
+
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverage</ExcludeByAttribute>
+
+          <SkipAutoProps>true</SkipAutoProps>
+          <DeterministicReport>false</DeterministicReport>
+          <IncludeTestAssembly>false</IncludeTestAssembly>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

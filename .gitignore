@@ -1,0 +1,33 @@
+## .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+artifacts/
+TestResults/
+# Ancorado com "/" para não ignorar docs/coverage/ (evidências de cobertura versionadas).
+/coverage/
+*.trx
+*.coverage
+*.cobertura.xml
+
+## Logs (runtime, gerados pelo Serilog)
+logs/
+*.log
+
+## Rider / VS Code
+.idea/
+.vscode/
+
+## Secrets / config local
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+
+## OS
+.DS_Store
+Thumbs.db
