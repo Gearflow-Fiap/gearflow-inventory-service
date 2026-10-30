@@ -26,7 +26,8 @@ Responsável por:
 | E-mails de estoque (baixo e insuficiente), por SMTP | ✅ Pronto e testado contra um Mailpit real |
 | Testes unitários, de arquitetura e de integração | ✅ 215 + 43 |
 | BDD (Reqnroll) | ⏳ Fase 7 |
-| SonarCloud, imagem no GHCR, manifests K8s, deploy automático | ⏳ Fase 8 (o `ci.yml` atual faz build, testes unitários com gate de cobertura e testes de integração) |
+| Imagem no GHCR, CodeQL, varredura de dependências, Dependabot, gate de cobertura (unit + integração) | 🟡 Workflows escritos, **ainda não executados no GitHub** (ver [seção 12](#12-cicd)) |
+| SonarCloud, manifests K8s, deploy automático | ⏳ Fase 8 |
 | Métricas de negócio, tracing da mensagem do RabbitMQ, dashboard no New Relic, collection Postman | ⏳ Fase 8 |
 | Preços em lote para o Operation Service (`A8` do plano) | ⏳ Depende da decisão de onde o Operation lê os preços |
 
@@ -122,7 +123,7 @@ gearflow-inventory-service/
 ├── tools/GearFlow.Inventory.SagaSimulator/  # simula o orquestrador: publica os comandos e mostra as respostas
 ├── scripts/New-DevToken.ps1              # gera um JWT de desenvolvimento para chamar a API na mão
 ├── docs/adr/                             # decisões de arquitetura
-├── .github/workflows/ci.yml
+├── .github/workflows/                    # ci.yml, codeql.yml, docker-publish.yml (+ dependabot.yml)
 ├── docker-compose.yml                    # postgres (porta 5433), rabbitmq, mailpit
 ├── coverlet.runsettings
 ├── Directory.Build.props · Directory.Packages.props
@@ -201,7 +202,6 @@ As migrations são aplicadas no startup (`MigrateAsync`, idempotente).
 O orquestrador pode **publicar** o comando ou fazer **`Send` para `queue:inventory-reserve-stock`**: as duas formas chegam, porque cada fila também é ligada à
 exchange do tipo da mensagem. Os tipos (`GearFlow.Contracts:ReserveStock` etc.) precisam ser os mesmos dos dois lados.
 
-**Como as garantias da Saga são cumpridas**
 **Eventos que o serviço publica** (padrão do grupo, igual ao do Operation: prefixo = repo sem `gearflow-` e sem `-service`, fato em kebab-case):
 
 | Evento | Exchange RabbitMQ |
@@ -228,6 +228,7 @@ cfg.Message<StockReserved>(message => message.SetEntityName(InventoryEventNames.
 
 Quem ficou ligado só ao nome antigo (`GearFlow.Contracts:StockReserved`) não recebe os eventos novos.
 
+**Como as garantias da Saga são cumpridas**
 
 | Garantia | Mecanismo |
 |---|---|
@@ -386,12 +387,27 @@ Evidências: `docs/coverage/` *(a gerar a partir do relatório do CI)*.
 
 ## 12. CI/CD
 
-`.github/workflows/ci.yml`, dois jobs:
+`.github/workflows/ci.yml`, quatro jobs:
 - **unit**: restore → build → testes unitários e de arquitetura com cobertura → **gate de 80%** → publica o relatório.
 - **integration**: testes de integração com Testcontainers (o runner `ubuntu-latest` já tem Docker) → publica a cobertura.
+- **security**: `dotnet list package --vulnerable --include-transitive` (falha se houver CVE) e relatório de pacotes obsoletos.
+- **coverage**: junta os relatórios de unit e integration com o ReportGenerator, aplica o **gate de 80% de linhas** sobre o
+  total, comenta o resultado no PR e publica o relatório consolidado (`coverage-merged`), que serve de evidência do desafio.
+  É o número do serviço inteiro, o que o PDF pede ("cobertura mínima de 80% por serviço").
 
-Faltam, na fase 8: SonarCloud (quality gate), imagem no GHCR, deploy automático no Kubernetes e smoke test em
-`/health/ready`. A `main` precisa ser protegida (PR obrigatório e checks obrigatórios) nas configurações do GitHub.
+Outros workflows:
+- `codeql.yml`: análise estática de C# (push, PR e varredura semanal).
+- `docker-publish.yml`: build da imagem (`src/GearFlow.Inventory.Api/Dockerfile`) em PR e push no
+  `ghcr.io/<org>/gearflow-inventory-service` em `main`, `develop` e tags `v*`.
+- `dependabot.yml`: NuGet e GitHub Actions, semanal. O MassTransit não sobe de major (a 9.x é comercial).
+
+Esses workflows ainda **não rodaram no GitHub**; o primeiro run é a validação de verdade. O `docker build` do Dockerfile
+foi validado localmente (a imagem tem o agente New Relic e a API), e os 207 + 42 testes passam.
+
+Faltam, na fase 8: SonarCloud (quality gate), deploy automático no Kubernetes e smoke test em `/health/ready`.
+A `main` (e a `develop`) precisam ser protegidas nas configurações do GitHub (*Settings → Branches*): PR obrigatório e
+checks obrigatórios `Build + testes unitários + cobertura`, `Integração (Postgres + RabbitMQ + Mailpit)`,
+`Security (pacotes vulneráveis e obsoletos)`, `Cobertura consolidada (gate 80%)` e `Analyze (csharp)`.
 
 ---
 
