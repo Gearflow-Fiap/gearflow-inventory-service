@@ -27,6 +27,12 @@ internal sealed class RabbitMqManagementClient : IDisposable
         return json.RootElement.TryGetProperty("messages", out var messages) ? messages.GetInt32() : 0;
     }
 
+    public async Task<bool> ExchangeExistsAsync(string exchange)
+    {
+        using var response = await _http.GetAsync($"api/exchanges/%2F/{Uri.EscapeDataString(exchange)}");
+        return response.IsSuccessStatusCode;
+    }
+
     /// <summary>Lê (sem consumir) as mensagens da fila e devolve os headers de cada uma.</summary>
     public async Task<IReadOnlyList<Dictionary<string, JsonElement>>> PeekHeadersAsync(string queue, int count = 10)
     {

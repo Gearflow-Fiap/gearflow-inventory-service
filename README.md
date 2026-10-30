@@ -24,7 +24,7 @@ Responsável por:
 | API REST (13 operações, JWT, ProblemDetails, OpenAPI/Scalar, health, métricas) | ✅ Pronto e testado de ponta a ponta |
 | Mensageria (MassTransit 8.5 + RabbitMQ, Outbox/Inbox no EF Core, consumers, retry, DLQ) | ✅ Pronto e **testado com RabbitMQ real** (ver [seção 7](#7-mensageria-rabbitmq--masstransit)) |
 | E-mails de estoque (baixo e insuficiente), por SMTP | ✅ Pronto e testado contra um Mailpit real |
-| Testes unitários, de arquitetura e de integração | ✅ 207 + 42 |
+| Testes unitários, de arquitetura e de integração | ✅ 215 + 43 |
 | BDD (Reqnroll) | ⏳ Fase 7 |
 | SonarCloud, imagem no GHCR, manifests K8s, deploy automático | ⏳ Fase 8 (o `ci.yml` atual faz build, testes unitários com gate de cobertura e testes de integração) |
 | Métricas de negócio, tracing da mensagem do RabbitMQ, dashboard no New Relic, collection Postman | ⏳ Fase 8 |
@@ -202,6 +202,32 @@ O orquestrador pode **publicar** o comando ou fazer **`Send` para `queue:invento
 exchange do tipo da mensagem. Os tipos (`GearFlow.Contracts:ReserveStock` etc.) precisam ser os mesmos dos dois lados.
 
 **Como as garantias da Saga são cumpridas**
+**Eventos que o serviço publica** (padrão do grupo, igual ao do Operation: prefixo = repo sem `gearflow-` e sem `-service`, fato em kebab-case):
+
+| Evento | Exchange RabbitMQ |
+|---|---|
+| `StockReserved` | `inventory.stock-reserved` |
+| `StockInsufficient` | `inventory.stock-insufficient` |
+| `StockReleased` | `inventory.stock-released` |
+| `StockConsumed` | `inventory.stock-consumed` |
+| `StockReplenished` | `inventory.stock-replenished` |
+| `LowStockAlert` | `inventory.low-stock-alert` |
+
+São nomes de **exchange** (fanout durável do MassTransit), não routing keys de uma exchange topic compartilhada. O envelope, a URN
+(`urn:message:GearFlow.Contracts:<Tipo>`) e o payload não mudam: o nome no broker é independente do namespace. Cada serviço interessado mantém a **sua própria
+fila durável** ligada à exchange. Fonte única dos nomes: `GearFlow.Contracts.InventoryEventNames.All` (sem dependência de MassTransit); o Inventory aplica o mapa
+em `ConfigureInventoryEventNames`, e comandos e tipos do framework (`Fault<T>`) continuam com o nome padrão.
+
+**Receber o pacote não renomeia a topologia sozinho.** Quem consome (ex.: o `os-service`) configura o mesmo nome, por tipo, antes dos endpoints:
+
+```csharp
+// Dentro de UsingRabbitMq, antes de ConfigureEndpoints/ReceiveEndpoint:
+cfg.Message<StockReserved>(message => message.SetEntityName(InventoryEventNames.All[typeof(StockReserved)]));
+// Repetir para cada evento consumido. O consumer segue tipado (IConsumer<StockReserved>).
+```
+
+Quem ficou ligado só ao nome antigo (`GearFlow.Contracts:StockReserved`) não recebe os eventos novos.
+
 
 | Garantia | Mecanismo |
 |---|---|
@@ -322,24 +348,24 @@ dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release
 dotnet test tests/GearFlow.Inventory.UnitTests -c Release --settings coverlet.runsettings --collect:"XPlat Code Coverage"
 ```
 
-**Unitários (207)**
+**Unitários (215)**
 
 | Grupo | O que cobre |
 |---|---|
 | `Domain` | Estoque bifásico de peça e insumo, `StockReservation` (transições e idempotência), ids e erros |
 | `Application` | Handlers da Saga (tudo ou nada, idempotência, mensagem fora de ordem, `LowStockAlert`), CRUD, validators, e-mails |
-| `Infrastructure` | Dispatcher + decorators, mapeamento EF/Npgsql, consumers no test harness do MassTransit, grafo de DI, classificação dos erros de concorrência |
+| `Infrastructure` | Dispatcher + decorators, mapeamento EF/Npgsql, consumers no test harness do MassTransit, grafo de DI, classificação dos erros de concorrência, **convenção de nomes** (exchanges `inventory.<fato>` dos eventos, filas `inventory-<comando>`, e todo evento novo precisa de nome) |
 | `Api` | Tradução `Result` → HTTP, middleware de exceções (409 em conflito de concorrência) |
 | `Architecture` | Direção das camadas, handlers `internal sealed`, endpoints documentados e protegidos, rotas do monólito preservadas |
 
 Os handlers rodam sobre o **domínio real**, com repositórios em memória (sem mocks no domínio).
 
-**Integração (42), contra Postgres, RabbitMQ e Mailpit reais**
+**Integração (43), contra Postgres, RabbitMQ e Mailpit reais**
 
 | Grupo | O que prova |
 |---|---|
 | `Persistence` | Migrations do zero, seed idempotente com IDs fixos, repositórios, **duas reservas da última unidade não commitam as duas** (`xmin` e transações Serializable), índice único por OS, reserva + mensagem do Outbox no mesmo commit |
-| `Messaging` | A API completa com um bus de teste no papel do orquestrador: reserva, insuficiente (tudo ou nada + e-mail), liberação, consumo + alerta, duas OS disputando a última unidade, mensagem repetida (Inbox), `ReleaseStock` antes do `ReserveStock`, mensagem malformada direto na `_error`, `PATCH` publicando pelo Outbox do bus, `/health/ready` com banco e broker |
+| `Messaging` | A API completa com um bus de teste no papel do orquestrador (que configura o nome `inventory.<fato>` de cada evento que consome, como o `os-service` fará; e a exchange do tipo CLR não é mais criada): reserva, insuficiente (tudo ou nada + e-mail), liberação, consumo + alerta, duas OS disputando a última unidade, mensagem repetida (Inbox), `ReleaseStock` antes do `ReserveStock`, mensagem malformada direto na `_error`, `PATCH` publicando pelo Outbox do bus, `/health/ready` com banco e broker |
 | `Rest` | O contrato REST do frontend: CRUD de peças e insumos, 400/404/409 com `code` no ProblemDetails, consulta de reserva, OpenAPI com as 13 operações, 401 sem token válido |
 | `Email` | `SmtpEmailSender` contra um Mailpit real |
 

@@ -38,8 +38,8 @@ Sem montar nada à mão. Os testes de integração sobem Postgres, RabbitMQ e Ma
 dotnet test GearFlow.Inventory.slnx -c Release
 
 # ou separados
-dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 207 testes, ~5 s, sem Docker
-dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release   # 42 testes, ~35 s, precisa do Docker
+dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 215 testes, ~5 s, sem Docker
+dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release   # 43 testes, ~35 s, precisa do Docker
 ```
 
 Na primeira vez a integração demora mais porque baixa as imagens (`postgres:17`, `rabbitmq:4-management`, `axllent/mailpit`).
@@ -122,6 +122,7 @@ O código de saída é `0` se tudo passou e `1` se algo falhou (serve para scrip
 |---|---|---|
 | **API (Scalar)** | http://localhost:5081/scalar/v1 | Documentação interativa. Clique em **Authorize** e cole o token |
 | **RabbitMQ** | http://localhost:15672 (`guest` / `guest`), aba **Queues** | As 5 filas `inventory-*` com 1 consumidor cada; a `inventory-reserve-stock_error` com a mensagem do cenário `poison` |
+| **RabbitMQ** | Aba **Exchanges** | Eventos em `inventory.stock-reserved`, `inventory.stock-insufficient`, `inventory.stock-released`, `inventory.stock-consumed`, `inventory.stock-replenished` e `inventory.low-stock-alert` (as duas últimas criadas só quando publicadas ou ligadas a uma fila); nenhuma exchange `GearFlow.Contracts:Stock…` |
 | **Mailpit** | http://localhost:8025 | 2 e-mails em `estoque@gearflow.com`: "Estoque insuficiente para a OS …" (cenário `shortage`) e "Estoque baixo: Água desmineralizada (L)" (cenário `lowstock`) |
 | **Postgres** | `docker exec -i gearflow-inventory-service-postgres-1 psql -U gearflow -d gearflow_inventory` | Ver abaixo |
 
@@ -264,6 +265,8 @@ O que **só** dá para validar quando o `os-service` (orquestrador), o Billing e
 1. **O fluxo ponta a ponta de uma OS**: abrir OS → diagnóstico → orçamento → pagamento → `ReserveStock` → execução → `ConsumeStock` → entrega, e o cenário "pagou, faltou estoque" com reembolso.
 2. **Que os dois lados falam a mesma língua.** Quando o `os-service` ficar pronto, confira:
    - os tipos de mensagem têm o **mesmo namespace e nome** (`GearFlow.Contracts:ReserveStock` etc.): compare com `src/GearFlow.Contracts/InventoryMessages.cs`;
+   - o `os-service` configurou o **nome da exchange de cada evento que consome** (`inventory.stock-reserved` etc., mapa em `InventoryEventNames.All`): sem isso ele
+     liga a fila na exchange antiga e nunca recebe a resposta (o simulador faz isso em `Simulator.cs`; copie o mesmo trecho);
    - os campos batem (`CorrelationId` = `ServiceOrderId`, `Items[]` com `ItemType` como **texto**, quantidades decimais);
    - os dois usam o **mesmo RabbitMQ** (host, virtual host, credenciais);
    - o orquestrador tem **timeout**: falha permanente do Inventory (mensagem malformada, `ConsumeStock` sem reserva) não gera resposta, só vai para a DLQ;

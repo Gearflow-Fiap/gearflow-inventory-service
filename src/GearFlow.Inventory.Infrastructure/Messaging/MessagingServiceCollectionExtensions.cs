@@ -43,6 +43,8 @@ public static class MessagingServiceCollectionExtensions
 
             x.UsingRabbitMq((context, cfg) =>
             {
+                cfg.ConfigureInventoryEventNames();
+
                 cfg.Host(options.Host, options.Port, options.VirtualHost, host =>
                 {
                     host.Username(options.Username);
