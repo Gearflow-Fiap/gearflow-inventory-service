@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # NuGet: Central Package Management, as versões vivem em Directory.Packages.props (raiz).
+  # MassTransit fica de fora do major: a 9.x é comercial e os 4 serviços devem ficar na 8.5.x.
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels: [ "dependencies", "nuget" ]
+    commit-message:
+      prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "MassTransit*"
+        update-types: [ "version-update:semver-major" ]
+    groups:
+      # Agrupa atualizações de patch/minor num PR só para reduzir ruído.
+      nuget-minor-patch:
+        update-types: [ "minor", "patch" ]
+
+  # Mantém as actions dos workflows atualizadas.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [ "dependencies", "github-actions" ]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions:
+        patterns: [ "*" ]
