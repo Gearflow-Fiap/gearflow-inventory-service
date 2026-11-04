@@ -1,9 +1,11 @@
 name: CI
 
-# Pipeline do Inventory Service: build, testes unitários com gate de cobertura (>= 80%, meta do desafio) e testes
-# de integração (Postgres + RabbitMQ + Mailpit reais, via Testcontainers).
-# Ainda faltam (fase 8 do plano): SonarCloud com quality gate, build/push da imagem no GHCR e
-# deploy automático no Kubernetes + smoke test em /health/ready.
+# Pipeline do Inventory Service: build, testes unitários com gate de cobertura (>= 80%, meta do desafio), testes de
+# integração (Postgres + RabbitMQ + Mailpit reais, via Testcontainers), varredura de dependências vulneráveis e um
+# relatório de cobertura consolidado (unitários + integração) com o mesmo gate de 80%.
+# Outros workflows: codeql.yml (análise estática) e docker-publish.yml (imagem no GHCR).
+# Ainda faltam (fase 8 do plano): SonarCloud com quality gate e deploy automático no Kubernetes + smoke test em
+# /health/ready.
 
 on:
   push:
@@ -101,4 +103,108 @@ jobs:
         with:
           name: coverage-integration
           path: ./coverage/integration/**/coverage.cobertura.xml
+          if-no-files-found: ignore
+
+  security:
+    name: Security (pacotes vulneráveis e obsoletos)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('Directory.Packages.props') }}
+          restore-keys: nuget-
+
+      - name: Restore
+        run: dotnet restore GearFlow.Inventory.slnx
+
+      # Pacotes com CVE conhecido (inclui transitivos). O `dotnet list` pode sair com código 1 ao topar com
+      # projetos que não usam PackageReference, então NÃO usamos pipefail/-e aqui: o veredito vem do grep.
+      - name: Pacotes vulneráveis (falha se houver)
+        run: |
+          dotnet list GearFlow.Inventory.slnx package --vulnerable --include-transitive > vulnerable.txt 2>&1 || true
+          cat vulnerable.txt
+          if grep -qiE 'has the following vulnerable packages' vulnerable.txt; then
+            echo "::error::Dependências vulneráveis encontradas. Veja o log acima."
+            exit 1
+          fi
+          echo "Sem pacotes vulneráveis." >> "$GITHUB_STEP_SUMMARY"
+
+      # Pacotes obsoletos: só informa no resumo, não quebra o build.
+      - name: Pacotes obsoletos (só relatório)
+        if: always()
+        run: |
+          {
+            echo "### Pacotes obsoletos";
+            echo '```';
+            dotnet list GearFlow.Inventory.slnx package --deprecated 2>&1 || true;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  coverage:
+    name: Cobertura consolidada (gate 80%)
+    runs-on: ubuntu-latest
+    needs: [ unit, integration ]
+    permissions:
+      contents: read
+      pull-requests: write    # comentário fixo de cobertura no PR
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      # Sem `name`, baixa todos os artefatos (coverage-unit e coverage-integration), cada um na sua subpasta.
+      - name: Baixa os relatórios de cobertura
+        uses: actions/download-artifact@v8
+        with:
+          path: ./coverage-all
+
+      - name: Junta unitários + integração
+        run: >
+          dotnet tool run reportgenerator
+          -reports:"./coverage-all/**/coverage.cobertura.xml"
+          -targetdir:"./coverage-report"
+          -reporttypes:"Cobertura;TextSummary;MarkdownSummaryGithub"
+
+      - name: Resumo da cobertura
+        run: cat ./coverage-report/Summary.txt
+
+      - name: Gate de cobertura (unitários + integração)
+        run: |
+          set -euo pipefail
+          LINE=$(grep -oP 'Line coverage:\s*\K[0-9.]+' ./coverage-report/Summary.txt | head -n1 || true)
+          BRANCH=$(grep -oP 'Branch coverage:\s*\K[0-9.]+' ./coverage-report/Summary.txt | head -n1 || true)
+          LINE=${LINE:-0}; BRANCH=${BRANCH:-0}
+          MIN=$(awk -v m="$COVERAGE_MIN" 'BEGIN { printf "%d", m * 100 }')
+          echo "Linhas: ${LINE}% (mínimo ${MIN}%) · Branches: ${BRANCH}% (informativo)" | tee -a "$GITHUB_STEP_SUMMARY"
+          awk -v c="$LINE" -v m="$COVERAGE_MIN" 'BEGIN { exit !(c / 100 >= m) }' \
+            || { echo "::error::Cobertura de linhas ${LINE}% abaixo do mínimo de ${MIN}%."; exit 1; }
+
+      # Comentário fixo de cobertura no PR (recria a cada push). É conveniência: não derruba o gate (ex.: PR de fork).
+      - name: Comentário de cobertura no PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v3.0.5
+        with:
+          recreate: true
+          path: ./coverage-report/SummaryGithub.md
+
+      - name: Publica o relatório consolidado
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-merged
+          path: ./coverage-report
           if-no-files-found: ignore
