@@ -17,7 +17,7 @@ na máquina de desenvolvimento (Windows, PowerShell) e os resultados mostrados s
 | Mensageria (Outbox, Inbox, retry, DLQ, e-mails) | ✅ Sim | Seções 2, 3 e 6 |
 | Resiliência (API fora do ar, RabbitMQ cai e volta) | ✅ Sim | [Seção 6](#6-testar-falhas-e-resiliência) |
 | **Fluxo completo de uma OS** passando por OS → Billing → Operation → Inventory | ❌ Só quando os outros ficarem prontos | [Seção 7](#7-o-que-depende-dos-outros) |
-| Deploy no Kubernetes, Kong, New Relic | ❌ Fase 8 (ainda não feita) | — |
+| Deploy no Kubernetes, Kong, New Relic | 🟡 Manifestos, workflow de deploy e export OTLP escritos; falta rodar no cluster | [k8s/README.md](../k8s/README.md) |
 
 ---
 
@@ -34,11 +34,11 @@ na máquina de desenvolvimento (Windows, PowerShell) e os resultados mostrados s
 Sem montar nada à mão. Os testes de integração sobem Postgres, RabbitMQ e Mailpit sozinhos (Testcontainers).
 
 ```powershell
-# 249 testes no total
+# 260 testes no total
 dotnet test GearFlow.Inventory.slnx -c Release
 
 # ou separados
-dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 215 testes, ~5 s, sem Docker
+dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 217 testes, ~5 s, sem Docker
 dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release   # 43 testes, ~35 s, precisa do Docker
 ```
 
@@ -158,7 +158,9 @@ Cada um roda sozinho: `dotnet run --project tools/GearFlow.Inventory.SagaSimulat
 
 ## 5. Testar pela API REST
 
-Abra http://localhost:5081/scalar/v1, clique em **Authorize** e cole o token do passo 3 (sem o `Bearer `). Ou use o PowerShell:
+Abra http://localhost:5081/scalar/v1, clique em **Authorize** e cole o token do passo 3 (sem o `Bearer `). Ou importe a
+[collection do Postman](postman/gearflow-inventory-service.postman_collection.json) (com o environment `…local.postman_environment.json`),
+cole o token na variável `token` e rode a collection na ordem das pastas. Ou use o PowerShell:
 
 ```powershell
 $h = @{ Authorization = "Bearer $(.\scripts\New-DevToken.ps1)" }
