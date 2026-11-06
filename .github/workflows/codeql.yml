@@ -1,4 +1,4 @@
-name: CodeQL
+name: gearflow-inventory-service.codeql
 
 on:
   push:

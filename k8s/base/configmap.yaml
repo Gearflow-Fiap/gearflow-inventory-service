@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gearflow-inventory-config
+data:
+  ASPNETCORE_HTTP_PORTS: "8080"
+  ASPNETCORE_ENVIRONMENT: Production
+
+  # Mesmos valores do monólito e da Lambda (Jwt__Secret vem do Secret).
+  Jwt__Issuer: GearFlow.Api
+  Jwt__Audience: GearFlow.Client
+
+  # Broker. O vhost `gearflow` é o que o gearflow-infra-broker provisiona (decisão D-02 do grupo ainda pendente).
+  # Host/porta: confirmar com quem sobe o RabbitMQ no cluster (hoje não há manifesto em gearflow-infra-broker/k8s).
+  RabbitMq__Host: rabbitmq.gearflow.svc.cluster.local
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: gearflow
+
+  # Mailpit que já roda no namespace (gearflow-infra-k8s/k8s/gearflow/smtp).
+  Smtp__Host: smtp-service
+  Smtp__Port: "1025"
+  Smtp__From: no-reply@gearflow.com
+  Stock__AlertEmail: estoque@gearflow.com
+
+  # Catálogo de demonstração (peças P1..P6 com IDs fixos). Para o vídeo, trocar para "true" ou aplicar um patch.
+  Seed__EnableDevData: "false"
+
+  # Observabilidade reaproveitada da Fase 3 (mesmo caminho do monólito, gearflow-infra-k8s/terraform/app.tf): traces e métricas
+  # por OTLP para o New Relic. O header `api-key` sai da licença do Secret newrelic-apm-secret (OTEL_EXPORTER_OTLP_HEADERS no
+  # Deployment). Os spans do MassTransit fazem o trace atravessar o RabbitMQ.
+  Otlp__Endpoint: https://otlp.nr-data.net:4317
+
+  # O agente do New Relic precisa de um diretório gravável (o sistema de arquivos do contêiner é somente leitura).
+  # NÃO definir DOTNET_EnableDiagnostics=0 aqui: ele desliga o profiler do CLR e o agente deixa de funcionar.
+  NEW_RELIC_LOG_DIRECTORY: /tmp/newrelic

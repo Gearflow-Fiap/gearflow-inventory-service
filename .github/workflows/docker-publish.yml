@@ -1,8 +1,8 @@
-name: Docker Publish
+name: gearflow-inventory-service.docker-publish
 
 # Publica a imagem do Inventory no GHCR em push para main/develop e em tags de release (v*).
 # Em PR só faz o build (sem push), para o Dockerfile não quebrar sem ninguém ver.
-# O deploy no Kubernetes ainda não existe (fase 8 do plano): esta imagem é o que ele vai consumir.
+# O deploy no Kubernetes é o delivery.yml (desligado por variável até o cluster estar acessível): esta imagem é o que ele consome.
 
 on:
   push:
