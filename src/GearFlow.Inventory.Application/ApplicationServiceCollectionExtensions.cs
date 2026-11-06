@@ -1,5 +1,6 @@
 using FluentValidation;
 using GearFlow.Inventory.Application.Abstractions;
+using GearFlow.Inventory.Application.Behaviors;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace GearFlow.Inventory.Application;
@@ -26,6 +27,9 @@ public static class ApplicationServiceCollectionExtensions
             services.AddScoped(service, implementation);
 
         services.AddValidatorsFromAssembly(assembly, includeInternalTypes: true);
+
+        // Instrumentos do Meter "GearFlow.Business": criados uma vez por processo e usados pelo BusinessMetricsDecorator.
+        services.AddSingleton<IBusinessMetrics, BusinessMetrics>();
 
         return services;
     }

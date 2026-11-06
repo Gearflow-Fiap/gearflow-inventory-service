@@ -17,7 +17,7 @@ namespace GearFlow.Inventory.Api.Configurations;
 public static class ObservabilityExtensions
 {
     /// <summary>Meter de métricas de negócio, compartilhado com os outros serviços (dashboard do New Relic).</summary>
-    public const string BusinessMeterName = "GearFlow.Business";
+    public const string BusinessMeterName = BusinessMetrics.MeterName;
 
     /// <summary>
     /// <c>ActivitySource</c> e <c>Meter</c> que o MassTransit 8 publica (<c>DiagnosticHeaders.DefaultListenerName</c> e
