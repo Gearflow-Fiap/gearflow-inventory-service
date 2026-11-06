@@ -24,14 +24,15 @@ Responsável por:
 | API REST (13 operações, JWT, ProblemDetails, OpenAPI/Scalar, health, métricas) | ✅ Pronto e testado de ponta a ponta |
 | Mensageria (MassTransit 8.5 + RabbitMQ, Outbox/Inbox no EF Core, consumers, retry, DLQ) | ✅ Pronto e **testado com RabbitMQ real** (ver [seção 7](#7-mensageria-rabbitmq--masstransit)) |
 | E-mails de estoque (baixo e insuficiente), por SMTP | ✅ Pronto e testado contra um Mailpit real |
-| Testes unitários, de arquitetura e de integração | ✅ 217 + 43 |
+| Testes unitários, de arquitetura e de integração | ✅ 240 + 43 |
 | BDD (Reqnroll) | ⏳ Fase 7 |
 | Imagem no GHCR (pública), CodeQL, varredura de dependências, Dependabot, gate de cobertura (unit + integração) | ✅ Rodando verde no GitHub desde 2026-11-04 (ver [seção 12](#12-cicd)) |
 | Manifests K8s (base, rota Kong, Postgres de exemplo) | ✅ Validados com kubeconform e em smoke test no Docker; **ainda não aplicados em cluster** ([k8s/README.md](k8s/README.md)) |
 | SonarCloud e deploy automático | 🟡 Workflows escritos e desligados por variável (`SONAR_PROJECT_KEY`, `DEPLOY_ENABLED`); dependem de token do Sonar e acesso ao cluster |
 | Tracing da mensagem do RabbitMQ (fonte e medidor `MassTransit` no OpenTelemetry) e export OTLP para o New Relic no K8s | ✅ Ligado no código (testado) e nos manifestos; **ainda não visto no New Relic**, falta rodar no cluster ([seção 9](#9-configuração)) |
 | Collection Postman (13 operações + health + erros esperados) | ✅ [`docs/postman/`](docs/postman/) (conferida contra as rotas do código; **não executada** contra uma API no ar) |
-| Métricas de negócio e dashboard no New Relic | ⏳ Fase 8 |
+| AMQPS no broker compartilhado (`RabbitMq__Tls` + CA privada, nome de host sempre validado), ConfigMap e label de Pod certos | ✅ Código e testes; manifestos renderizam. **Falta a ACL do broker**: o usuário `gearflow_inventory` não pode declarar exchanges e filas, e o MassTransit precisa ([k8s/README.md](k8s/README.md#permissões-no-broker-pendência-com-o-dono-do-broker)) |
+| **New Relic como na Fase 3**: agente APM, OTLP, métricas de negócio (Meter `GearFlow.Business`), alertas e dashboard em Terraform | ✅ Código e testes (12 novos) e `terraform validate` ok ([`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)). **`terraform plan/apply`, `nri-bundle` no cluster e dados no New Relic ainda não verificados**: dependem das credenciais do grupo e do cluster |
 | Preços em lote para o Operation Service (`A8` do plano) | ⏳ Depende da decisão de onde o Operation lê os preços |
 
 **Como testar, sem depender dos outros serviços:** [`docs/COMO-TESTAR.md`](docs/COMO-TESTAR.md). O simulador do orquestrador
@@ -126,6 +127,8 @@ gearflow-inventory-service/
 ├── tools/GearFlow.Inventory.SagaSimulator/  # simula o orquestrador: publica os comandos e mostra as respostas
 ├── scripts/New-DevToken.ps1              # gera um JWT de desenvolvimento para chamar a API na mão
 ├── docs/adr/                             # decisões de arquitetura
+├── docs/OBSERVABILITY.md                 # New Relic: agente, OTLP, métricas de negócio, alertas e dashboard
+├── infra/newrelic/                       # Terraform: política de alertas, monitor sintético e dashboard do Inventory
 ├── docs/postman/                         # collection + environment do Postman
 ├── docs/coverage/                        # evidência de cobertura (como medir, gates e onde ver o número)
 ├── k8s/                                  # base, rota Kong (overlay) e Postgres de exemplo; ver k8s/README.md
@@ -284,8 +287,10 @@ Reservar, liberar e consumir **não** são REST: são comandos da Saga.
 | `ConnectionStrings__Postgres` | `Host=…;Database=gearflow_inventory;Username=…;Password=…` | Postgres do Inventory (Secret do K8s) |
 | `Jwt__Secret` | *(secret, ≥ 32 caracteres)* | Mesma chave HMAC do monólito e da Lambda de CPF |
 | `Jwt__Issuer` / `Jwt__Audience` | `GearFlow.Api` / `GearFlow.Client` | Os mesmos do cluster |
-| `RabbitMq__Host` / `__Port` / `__VirtualHost` | `rabbitmq` / `5672` / `/` | Broker (padrão: `localhost:5672`) |
-| `RabbitMq__Username` / `__Password` | *(secret)* | Credenciais do broker |
+| `RabbitMq__Host` / `__Port` / `__VirtualHost` | `rabbitmq.messaging.svc.cluster.local` / `5671` / `gearflow` | Broker (padrão: `localhost:5672`, vhost `/`). No K8s já vêm no ConfigMap, apontando para o broker do infra-broker |
+| `RabbitMq__Tls` | `true` | AMQPS (padrão `false`, o RabbitMQ local do compose). O broker compartilhado **só aceita TLS**. Mesma chave do Billing |
+| `RabbitMq__CaCertificatePath` | `/etc/gearflow/rabbitmq-ca/ca.crt` | PEM da CA privada do broker (o `ca.crt` público, vindo do ConfigMap `rabbitmq-ca`). O certificado e o **nome do host** são sempre validados; arquivo ausente derruba o startup |
+| `RabbitMq__Username` / `__Password` | `gearflow_inventory` / *(secret)* | Credenciais do broker (usuário próprio do serviço) |
 | `RabbitMq__RetryIntervalsMilliseconds__0..n` | `1000`, `5000`, `15000` | Intervalos do retry de falha transitória. **Ao configurar, informe a lista inteira**: ela substitui o padrão |
 | `Smtp__Host` / `__Port` / `__From` | `mailpit` / `1025` / `no-reply@gearflow.com` | SMTP dos avisos de estoque |
 | `Stock__AlertEmail` | `estoque@gearflow.com` | Quem recebe os avisos de estoque baixo e insuficiente |
@@ -358,13 +363,13 @@ dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release
 dotnet test tests/GearFlow.Inventory.UnitTests -c Release --settings coverlet.runsettings --collect:"XPlat Code Coverage"
 ```
 
-**Unitários (217)**
+**Unitários (240)**
 
 | Grupo | O que cobre |
 |---|---|
 | `Domain` | Estoque bifásico de peça e insumo, `StockReservation` (transições e idempotência), ids e erros |
 | `Application` | Handlers da Saga (tudo ou nada, idempotência, mensagem fora de ordem, `LowStockAlert`), CRUD, validators, e-mails |
-| `Infrastructure` | Dispatcher + decorators, mapeamento EF/Npgsql, consumers no test harness do MassTransit, grafo de DI, classificação dos erros de concorrência, **convenção de nomes** (exchanges `inventory.<fato>` dos eventos, filas `inventory-<comando>`, e todo evento novo precisa de nome), **telemetria** (a fonte e o medidor `MassTransit` que o `AddObservability` registra são os que o MassTransit emite de verdade) |
+| `Infrastructure` | Dispatcher + decorators, mapeamento EF/Npgsql, consumers no test harness do MassTransit, grafo de DI, classificação dos erros de concorrência, **convenção de nomes** (exchanges `inventory.<fato>` dos eventos, filas `inventory-<comando>`, e todo evento novo precisa de nome), **telemetria** (a fonte e o medidor `MassTransit` que o `AddObservability` registra são os que o MassTransit emite de verdade) e **TLS do RabbitMQ** (CA privada aceita, CA de outro emissor, nome de host errado e certificado expirado rejeitados, com handshake TLS real em loopback; arquivo da CA ausente derruba o startup) e **métricas de negócio** (os nomes dos instrumentos de `GearFlow.Business`, contrato com os NRQLs de `infra/newrelic`; o desfecho de cada `ReserveStock`, a falha de comando e o pipeline real do Dispatcher) |
 | `Api` | Tradução `Result` → HTTP, middleware de exceções (409 em conflito de concorrência) |
 | `Architecture` | Direção das camadas, handlers `internal sealed`, endpoints documentados e protegidos, rotas do monólito preservadas |
 
@@ -380,20 +385,18 @@ Os handlers rodam sobre o **domínio real**, com repositórios em memória (sem 
 | `Email` | `SmtpEmailSender` contra um Mailpit real |
 
 **Meta: ≥ 80% de cobertura de linhas.** O árbitro é o CI (Linux, coverlet), que aplica **dois gates de 80%**: nos testes unitários
-(job `unit`) e no consolidado unitários + integração (job `coverage`). Os dois passaram no run
-[41918414705](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/41918414705) (commit `db3f41e`, 2026-11-04).
-Ficam fora da cobertura (`coverlet.runsettings`): `Program.cs`, migrations e o projeto de contratos.
+(job `unit`) e no consolidado unitários + integração (job `coverage`). Os dois passaram. Números **medidos pelo CI** no run
+[42144143522](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/42144143522) (commit `c0882a8`, 2026-11-05),
+publicados como anotações do job:
 
-Números de uma medição **local anterior ao primeiro run do CI** (unitários, integração e a união das duas). Não foram reconferidos com o
-coverlet do CI, e a medição local de hoje, feita com outra ferramenta (o Smart App Control do Windows barra o coverlet), dá valores menores,
-então o valor do gate é o do run:
+| | Linhas | Branches |
+|---|---|---|
+| Testes unitários e de arquitetura (job `unit`) | **96,6%** | n/d |
+| **Unitários + integração (job `coverage`)** | **99,1%** | 92% |
 
-| | Linhas |
-|---|---|
-| Unitários | 90,7% |
-| Integração | 68,8% |
-| **Unitários + integração** | **96,3%** |
-
+O CI não publica a cobertura só da integração, então ela não aparece aqui. Ficam fora da cobertura (`coverlet.runsettings`): `Program.cs`,
+migrations e o projeto de contratos. Cada novo run publica as duas anotações; os números acima são do run citado, e os commits seguintes
+(métricas de negócio, TLS) mudam o valor, então o número vigente é sempre o do último run verde.
 Evidências e como ver o número exato de cada run (anotações do job e artefato `coverage-merged`): [`docs/coverage/`](docs/coverage/README.md).
 
 ---

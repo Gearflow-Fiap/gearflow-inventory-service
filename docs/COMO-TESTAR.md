@@ -34,11 +34,11 @@ na máquina de desenvolvimento (Windows, PowerShell) e os resultados mostrados s
 Sem montar nada à mão. Os testes de integração sobem Postgres, RabbitMQ e Mailpit sozinhos (Testcontainers).
 
 ```powershell
-# 260 testes no total
+# 283 testes no total
 dotnet test GearFlow.Inventory.slnx -c Release
 
 # ou separados
-dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 217 testes, ~5 s, sem Docker
+dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 240 testes, ~5 s, sem Docker
 dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release   # 43 testes, ~35 s, precisa do Docker
 ```
 

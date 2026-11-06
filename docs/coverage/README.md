@@ -17,21 +17,27 @@ Fora da medição (`coverlet.runsettings`): migrations, `Program.cs`, o projeto 
 Na máquina de desenvolvimento (Windows) o coverlet é barrado pelo Smart App Control, então a medição local usa outra ferramenta
 (`dotnet-coverage`) e **não bate** com a do CI. Por isso o número que vale é o do CI.
 
-## Prova de que os gates passam
+## Números medidos pelo CI
 
-Run [`41918414705`](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/41918414705), commit `db3f41e`
-(2026-11-04): os jobs `unit`, `integration`, `security` e `coverage` terminaram com sucesso, portanto os dois gates de 80% foram atendidos.
-Conferido pela API pública do GitHub (`/actions/runs/41918414705/jobs`).
+Run [`42144143522`](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/42144143522), commit `c0882a8` (2026-11-05),
+com todos os jobs em sucesso (`unit`, `integration`, `security`, `manifests` e `coverage`). Os números vêm das anotações que o CI publica
+em cada job (`GET /repos/Gearflow-Fiap/gearflow-inventory-service/check-runs/<id do job>/annotations`, API pública, sem login):
+
+| Job | Medição | Gate |
+|---|---|---|
+| `unit` — *Build + testes unitários + cobertura* | **96,6%** de linhas | ≥ 80%: passou |
+| `coverage` — *Cobertura consolidada (gate 80%)* | **99,1%** de linhas, 92% de branches | ≥ 80%: passou |
+
+A cobertura só da integração não é publicada pelo CI. O run anterior (`41918414705`, commit `db3f41e`, 2026-11-04) também passou nos dois
+gates, mas ainda não publicava os percentuais. Os números mudam a cada commit; o vigente é o do último run verde.
 
 ## Onde ver o número exato
 
-1. **Anotações do run** (a partir do primeiro push depois de `2026-11-05`): os jobs `unit` e `coverage` publicam
-   *Cobertura (unitários)* e *Cobertura consolidada (unit + integração)* com o percentual. Ficam no resumo do run e na API pública:
-   `GET /repos/Gearflow-Fiap/gearflow-inventory-service/check-runs/<id do job>/annotations`.
+1. **Anotações do run**: os jobs `unit` e `coverage` publicam *Cobertura (unitários)* e *Cobertura consolidada (unit + integração)*
+   com o percentual, no resumo do run e na API pública (comando acima).
 2. **Artefato `coverage-merged`** (ZIP, em *Actions → run → Artifacts*): `Summary.txt`, `Cobertura.xml` e `SummaryGithub.md`, com o
    detalhe por classe. Os artefatos `coverage-unit` e `coverage-integration` trazem os relatórios de cada suíte. Retenção de 90 dias.
 3. **Comentário fixo no PR** com o resumo (job `coverage`, só em pull request).
-
 ## Como reproduzir
 
 ```bash
