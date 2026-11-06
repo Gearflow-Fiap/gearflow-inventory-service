@@ -17,8 +17,10 @@ k8s/
 |---|---|
 | Namespace `gearflow` | Já existe (gearflow-infra-k8s). A base não o cria. |
 | PostgreSQL 17 **exclusivo** | Nenhum outro serviço acessa este banco. Para demo: `local-postgres/` (precisa de StorageClass padrão no cluster). |
-| RabbitMQ | Host/vhost no `base/configmap.yaml` (hoje `rabbitmq.gearflow.svc.cluster.local`, vhost `gearflow`). **Ainda não há manifesto de RabbitMQ no gearflow-infra-broker**; o usuário precisa poder configurar o vhost (o MassTransit cria exchanges e filas). |
-| Secret `gearflow-inventory-secret` | Chaves: `ConnectionStrings__Postgres`, `Jwt__Secret`, `RabbitMq__Username`, `RabbitMq__Password`. Nunca no repositório. |
+| RabbitMQ do `gearflow-infra-broker` | Já implantado no EKS `gearflow-fase4` (05/11): `rabbitmq.messaging.svc.cluster.local:5671`, vhost `gearflow`, **AMQPS obrigatório** (não existe 5672). O `base/configmap.yaml` já aponta para ele e liga `RabbitMq__Tls`. **Pendência com o dono do broker: as permissões** (veja [Permissões no broker](#permissões-no-broker-pendência-com-o-dono-do-broker)). |
+| ConfigMap `rabbitmq-ca` | O `ca.crt` **público** do broker, no namespace do Inventory. Quem tem o arquivo cria (comando abaixo). O Deployment o monta em `/etc/gearflow/rabbitmq-ca`; sem ele o Pod fica em `ContainerCreating`. |
+| Label do namespace | `gearflow.io/messaging-access=true`, aplicada por quem administra o cluster. A label de Pod `gearflow.io/rabbitmq-client: "true"` já está no Deployment; **as duas são necessárias**, senão a NetworkPolicy do broker bloqueia a 5671. |
+| Secret `gearflow-inventory-secret` | Chaves: `ConnectionStrings__Postgres`, `Jwt__Secret`, `RabbitMq__Username` (o usuário `gearflow_inventory` do broker), `RabbitMq__Password` (a senha dele, em `.local/service-credentials.json` do infra-broker, que não é versionado). Nunca no repositório. |
 | Secret `newrelic-apm-secret` | Já criado pelo gearflow-infra-k8s (chave `NEW_RELIC_LICENSE_KEY`). Opcional: sem ele o agente só não reporta **e o export OTLP (abaixo) é rejeitado pelo New Relic**, sem derrubar a API. |
 | SMTP | O Mailpit `smtp-service:1025` que já roda no namespace. |
 
@@ -36,8 +38,12 @@ kubectl apply -f k8s/local-postgres/statefulset.yaml
 kubectl -n gearflow create secret generic gearflow-inventory-secret \
   --from-literal=ConnectionStrings__Postgres="Host=inventory-postgres;Port=5432;Database=gearflow_inventory;Username=gearflow;Password=$PGPW" \
   --from-literal=Jwt__Secret="$(kubectl -n gearflow get secret gearflow-secret -o jsonpath='{.data.Jwt__SigningKey}' | base64 -d)" \
-  --from-literal=RabbitMq__Username='<usuário do broker>' \
-  --from-literal=RabbitMq__Password='<senha do broker>'
+  --from-literal=RabbitMq__Username='gearflow_inventory' \
+  --from-literal=RabbitMq__Password='<senha do usuário gearflow_inventory>'
+
+# 2b) Acesso ao broker: a CA pública (só o ca.crt, nunca a chave) e a label que a NetworkPolicy do broker exige no namespace.
+kubectl -n gearflow create configmap rabbitmq-ca --from-file=ca.crt=<caminho do ca.crt do infra-broker>
+kubectl label namespace gearflow gearflow.io/messaging-access=true --overwrite   # quem administra o cluster
 
 # 3) Aplicação (use o digest/tag publicados pela ação gearflow-inventory-service.docker-publish)
 kubectl kustomize k8s/overlays/kong \
@@ -48,6 +54,28 @@ kubectl -n gearflow rollout status deployment/gearflow-inventory
 
 Para o vídeo, o catálogo de demonstração (peças P1 a P6, IDs fixos) sai com `Seed__EnableDevData: "true"` no ConfigMap.
 Preços para o Operation: `GET http://gearflow-inventory.gearflow.svc.cluster.local:8080/api/inventory/parts/{id}` (chamada interna, sem Kong).
+
+## Permissões no broker (pendência com o dono do broker)
+
+O TLS, o host, a porta e as labels estão corretos. **O que ainda impede o Inventory de subir no broker compartilhado são as permissões.**
+Hoje `rabbitmq/service-permissions.json` do infra-broker dá ao usuário `gearflow_inventory` `configure: "^$"`, `write` só em
+`gearflow.events` e `read` só em `gearflow.inventory.*`, e o README do broker diz que as bibliotecas devem usar a topologia
+existente. O MassTransit **declara** exchanges e filas ao iniciar (`ACCESS_REFUSED` com `configure` vazio), e publica nas exchanges
+`inventory.<fato>`, que não são `gearflow.events`.
+
+O que o Inventory declara, publica e consome (de `QueueNames` e `InventoryEventNames`):
+
+| Tipo | Nomes |
+|---|---|
+| Filas (e uma exchange de mesmo nome cada) | `inventory-reserve-stock`, `inventory-release-stock`, `inventory-consume-stock`, `inventory-low-stock-alert-email`, `inventory-stock-insufficient-email`, mais `<fila>_error` e `<fila>_skipped` de cada uma |
+| Exchanges de eventos que ele publica | `inventory.stock-reserved`, `.stock-insufficient`, `.stock-released`, `.stock-consumed`, `.stock-replenished`, `.low-stock-alert` |
+| Exchanges por tipo de mensagem (consumo) | `GearFlow.Contracts:ReserveStock`, `:ReleaseStock`, `:ConsumeStock`, `:LowStockAlert`, `:StockInsufficient` |
+
+**Proposta de ACL** para `gearflow_inventory` (a validar com o dono do broker; não foi testada contra um RabbitMQ real):
+`configure`, `write` e `read` = `^(inventory[-.].*|GearFlow\.Contracts:.*)$`. O Billing, o Operation e o OS têm necessidades parecidas
+com os próprios prefixos; além disso o OS e o Operation precisam de `read` nas exchanges `inventory.stock-*` para ligar as filas deles, e
+o OS hoje publica os comandos na **exchange padrão**, que o broker proíbe. Isso é uma decisão do grupo (D-02): ou o broker libera os
+prefixos dos serviços, ou os serviços passam a usar só a topologia pré-criada, o que o MassTransit não suporta.
 
 ## Deploy automático (`.github/workflows/delivery.yml`, ação `gearflow-inventory-service.delivery`)
 
@@ -73,6 +101,7 @@ do Secret `newrelic-apm-secret`: o mesmo caminho do monólito (`gearflow-infra-k
 OTLP e inclui os spans do MassTransit, então um trace que começa numa requisição REST ou numa mensagem do RabbitMQ deve aparecer inteiro no
 New Relic (o serviço que **envia** a mensagem também precisa propagar o contexto). **Ainda não foi visto no New Relic**: depende de rodar no
 cluster. O agente APM do Dockerfile continua ativo. Para desligar o OTLP, remova `Otlp__Endpoint` do ConfigMap.
+Métricas de negócio, alertas, dashboard e o pré-requisito do `nri-bundle` no cluster: [docs/OBSERVABILITY.md](../docs/OBSERVABILITY.md).
 
 ## O que foi verificado (2026-11-04)
 

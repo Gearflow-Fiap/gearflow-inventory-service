@@ -10,11 +10,14 @@ data:
   Jwt__Issuer: GearFlow.Api
   Jwt__Audience: GearFlow.Client
 
-  # Broker. O vhost `gearflow` é o que o gearflow-infra-broker provisiona (decisão D-02 do grupo ainda pendente).
-  # Host/porta: confirmar com quem sobe o RabbitMQ no cluster (hoje não há manifesto em gearflow-infra-broker/k8s).
-  RabbitMq__Host: rabbitmq.gearflow.svc.cluster.local
-  RabbitMq__Port: "5672"
+  # Broker compartilhado do gearflow-infra-broker (EKS gearflow-fase4): namespace `messaging`, vhost `gearflow` e AMQPS na 5671,
+  # obrigatório (não existe listener 5672). O certificado do broker é de uma CA privada e traz este host nos SANs; o ca.crt vem do
+  # ConfigMap `rabbitmq-ca`, montado no Deployment (veja k8s/README.md). O usuário é o `gearflow_inventory`, no Secret.
+  RabbitMq__Host: rabbitmq.messaging.svc.cluster.local
+  RabbitMq__Port: "5671"
   RabbitMq__VirtualHost: gearflow
+  RabbitMq__Tls: "true"
+  RabbitMq__CaCertificatePath: /etc/gearflow/rabbitmq-ca/ca.crt
 
   # Mailpit que já roda no namespace (gearflow-infra-k8s/k8s/gearflow/smtp).
   Smtp__Host: smtp-service

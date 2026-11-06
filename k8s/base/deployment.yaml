@@ -17,6 +17,9 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: gearflow-inventory
+        # Exigida pela NetworkPolicy do broker (junto com a label gearflow.io/messaging-access=true no namespace):
+        # sem as duas, a conexão na 5671 é bloqueada. Precisa estar no template dos Pods, não só no Deployment.
+        gearflow.io/rabbitmq-client: "true"
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 45
@@ -67,6 +70,10 @@ spec:
           volumeMounts:
             - name: temporary
               mountPath: /tmp
+            # ca.crt público do broker (RabbitMq__CaCertificatePath). Só a CA: a chave do broker nunca vai para os clientes.
+            - name: rabbitmq-ca
+              mountPath: /etc/gearflow/rabbitmq-ca
+              readOnly: true
           # A migration roda no startup (Program.cs), por isso a janela do startupProbe é larga: 60 x 2s.
           startupProbe:
             httpGet:
@@ -91,3 +98,8 @@ spec:
         - name: temporary
           emptyDir:
             sizeLimit: 64Mi
+        # Criado por quem tem o ca.crt do broker (k8s/README.md). Sem ele o Pod fica em ContainerCreating, de propósito:
+        # é melhor do que subir sem TLS validado.
+        - name: rabbitmq-ca
+          configMap:
+            name: rabbitmq-ca

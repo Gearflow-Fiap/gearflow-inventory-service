@@ -77,6 +77,9 @@ jobs:
           grep -q "image: ${IMAGE}" "$RUNNER_TEMP/inventory.yaml"
           kubectl get secret gearflow-inventory-secret -n gearflow >/dev/null || {
             echo "::error::O Secret gearflow-inventory-secret não existe no namespace gearflow (veja k8s/README.md)."; exit 1; }
+          # A CA pública do broker é montada no Pod; sem o ConfigMap o Pod fica em ContainerCreating sem explicação.
+          kubectl get configmap rabbitmq-ca -n gearflow >/dev/null || {
+            echo "::error::O ConfigMap rabbitmq-ca (ca.crt do broker) não existe no namespace gearflow (veja k8s/README.md)."; exit 1; }
           kubectl apply --dry-run=server -f "$RUNNER_TEMP/inventory.yaml"
           kubectl apply -f "$RUNNER_TEMP/inventory.yaml"
           kubectl rollout status deployment/gearflow-inventory -n gearflow --timeout=300s
