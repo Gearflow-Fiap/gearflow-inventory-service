@@ -127,9 +127,16 @@ cluster, que hoje não tem o Secret da licença nem o `nri-bundle`. O agente APM
 - Teste contra a topologia e as ACLs reais do infra-broker (2026-11-09): seção "Permissões no broker" acima.
 - Não foi aplicado em nenhum cluster.
 
-## Atenção: migration concorrente no primeiro deploy
+## Migration concorrente no primeiro deploy (resolvido)
 
-A migration roda no startup (`Program.cs`). Com 2 réplicas subindo ao mesmo tempo num banco **vazio**, uma pode cair uma vez com
-`42P07: relation "InboxState" already exists` (reproduzido no smoke test). O Kubernetes reinicia o pod e na segunda tentativa tudo já está
-aplicado. Para evitar o ruído no vídeo: `kubectl -n gearflow scale deployment/gearflow-inventory --replicas=1` logo após o primeiro apply
-(ou antes dele, via `--replicas` no apply) e voltar para 2 depois; a correção definitiva é um lock de migration no código.
+A migration roda no startup (`Program.cs`). Antes, com 2 réplicas subindo ao mesmo tempo num banco **vazio**, uma caía com
+`42P07: relation "InboxState" already exists` (reproduzido no smoke test), porque o `MigrateAsync` do provider Npgsql não serializa as
+réplicas. Agora o `InventoryDatabaseMigrator` toma um *advisory lock* do PostgreSQL (`pg_advisory_lock`, de sessão) antes de migrar: a
+réplica que chega depois espera, encontra tudo aplicado e segue. Não é preciso reduzir as réplicas no primeiro apply.
+
+- Se a outra réplica demorar mais de 90 s, o Pod falha com `TimeoutException` ("Não consegui o lock das migrations") e o Kubernetes o reinicia.
+- Se o Pod que migra for morto, o PostgreSQL derruba a sessão e libera o lock sozinho.
+- O lock exige que o usuário do banco consiga chamar `pg_advisory_lock` (qualquer usuário comum consegue). O banco precisa aceitar uma
+  conexão a mais por Pod durante a migration.
+- Testes de integração (Postgres real): quatro réplicas migrando um banco vazio ao mesmo tempo, o timeout com lock preso por outra sessão
+  e a liberação do lock ao terminar. Sem o lock, o primeiro deles reproduz o `42P07`.

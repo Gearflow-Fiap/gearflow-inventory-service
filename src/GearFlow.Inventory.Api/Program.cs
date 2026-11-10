@@ -29,11 +29,11 @@ builder.Services.AddOpenApi(options => options.AddDocumentTransformer<BearerSecu
 
 var app = builder.Build();
 
-// Migrations no startup (idempotente) e seed de demonstração opt-in.
+// Migrations no startup (idempotente e com lock: as réplicas sobem juntas) e seed de demonstração opt-in.
 if (!app.Environment.IsEnvironment("Testing"))
 {
     await using (var scope = app.Services.CreateAsyncScope())
-        await scope.ServiceProvider.GetRequiredService<InventoryDbContext>().Database.MigrateAsync();
+        await InventoryDatabaseMigrator.MigrateAsync(scope.ServiceProvider.GetRequiredService<InventoryDbContext>());
 
     // Sempre em Development; nos demais ambientes só com Seed__EnableDevData=true (ex.: demo no cluster).
     var seedDevData = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Seed:EnableDevData");

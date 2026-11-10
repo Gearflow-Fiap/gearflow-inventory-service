@@ -73,19 +73,23 @@ public sealed class InfrastructureFixture : IAsyncLifetime
     /// <summary>Cria um database novo e vazio (com as migrations aplicadas) no mesmo servidor.</summary>
     internal async Task<string> CreateIsolatedDatabaseAsync()
     {
-        var name = $"isolated_{Guid.NewGuid():N}";
-
-        await using (var admin = new NpgsqlConnection(PostgresConnectionString))
-        {
-            await admin.OpenAsync();
-            await using var create = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", admin);
-            await create.ExecuteNonQueryAsync();
-        }
-
-        var connectionString = new NpgsqlConnectionStringBuilder(PostgresConnectionString) { Database = name }.ConnectionString;
+        var connectionString = await CreateEmptyDatabaseAsync();
         await using var db = NewDbContext(connectionString);
         await db.Database.MigrateAsync();
         return connectionString;
+    }
+
+    /// <summary>Cria um database novo, SEM nenhuma migration aplicada (o estado de um cluster recém-criado).</summary>
+    internal async Task<string> CreateEmptyDatabaseAsync()
+    {
+        var name = $"isolated_{Guid.NewGuid():N}";
+
+        await using var admin = new NpgsqlConnection(PostgresConnectionString);
+        await admin.OpenAsync();
+        await using var create = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", admin);
+        await create.ExecuteNonQueryAsync();
+
+        return new NpgsqlConnectionStringBuilder(PostgresConnectionString) { Database = name }.ConnectionString;
     }
 
     internal async Task<Guid> SeedPartAsync(int quantity, string? name = null)

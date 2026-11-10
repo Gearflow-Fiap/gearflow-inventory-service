@@ -45,6 +45,64 @@ public sealed class PersistenceTests(InfrastructureFixture fx)
     }
 
     [Fact]
+    public async Task Replicas_starting_together_on_an_empty_database_all_migrate_without_errors()
+    {
+        // O Deployment tem 2 réplicas; sem exclusão mútua uma delas cai com 42P07 ("InboxState" already exists).
+        const int replicas = 4;
+        var connectionString = await fx.CreateEmptyDatabaseAsync();
+        var startGate = new TaskCompletionSource();
+
+        var startups = Enumerable.Range(0, replicas).Select(_ => Task.Run(async () =>
+        {
+            await startGate.Task;
+            await using var db = fx.NewDbContext(connectionString);
+            await InventoryDatabaseMigrator.MigrateAsync(db);
+        })).ToArray();
+        startGate.SetResult();
+
+        await FluentActions.Awaiting(() => Task.WhenAll(startups)).Should().NotThrowAsync();
+
+        await using var check = fx.NewDbContext(connectionString);
+        (await check.Database.GetPendingMigrationsAsync()).Should().BeEmpty();
+        (await check.Database.GetAppliedMigrationsAsync()).Should().HaveCount(check.Database.GetMigrations().Count());
+    }
+
+    [Fact]
+    public async Task Migrator_gives_up_with_a_clear_error_while_another_session_holds_the_lock()
+    {
+        var connectionString = await fx.CreateEmptyDatabaseAsync();
+        await using var holder = new NpgsqlConnection(connectionString);
+        await holder.OpenAsync();
+        await using (var hold = new NpgsqlCommand("SELECT pg_advisory_lock(@key)", holder))
+        {
+            hold.Parameters.AddWithValue("key", InventoryDatabaseMigrator.AdvisoryLockKey);
+            await hold.ExecuteNonQueryAsync();
+        }
+
+        await using var db = fx.NewDbContext(connectionString);
+        await FluentActions.Awaiting(() => InventoryDatabaseMigrator.MigrateAsync(db, TimeSpan.FromMilliseconds(500)))
+            .Should().ThrowAsync<TimeoutException>().WithMessage("*lock das migrations*");
+
+        // Nada foi migrado: quem esperava não passou por cima de quem segurava o lock.
+        (await db.Database.GetAppliedMigrationsAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Migrator_releases_the_lock_when_it_finishes()
+    {
+        var connectionString = await fx.CreateEmptyDatabaseAsync();
+        await using (var db = fx.NewDbContext(connectionString))
+            await InventoryDatabaseMigrator.MigrateAsync(db);
+
+        // Outra sessão consegue o lock na hora: o migrator não o deixou preso (nem no pool de conexões).
+        await using var other = new NpgsqlConnection(connectionString);
+        await other.OpenAsync();
+        await using var attempt = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", other);
+        attempt.Parameters.AddWithValue("key", InventoryDatabaseMigrator.AdvisoryLockKey);
+        ((bool)(await attempt.ExecuteScalarAsync())!).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Seeder_creates_the_demo_catalog_once_with_the_fixed_ids()
     {
         var connectionString = await fx.CreateIsolatedDatabaseAsync();
