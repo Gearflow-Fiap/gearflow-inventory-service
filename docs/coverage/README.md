@@ -19,17 +19,19 @@ Na máquina de desenvolvimento (Windows) o coverlet é barrado pelo Smart App Co
 
 ## Números medidos pelo CI
 
-Run [`42144143522`](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/42144143522), commit `c0882a8` (2026-11-05),
-com todos os jobs em sucesso (`unit`, `integration`, `security`, `manifests` e `coverage`). Os números vêm das anotações que o CI publica
+Run [`42810312591`](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/42810312591), commit `9cd9057` (2026-11-10),
+com todos os jobs em sucesso (`unit`, `integration`, `security`, `manifests` e `coverage`; o `sonar` fica desligado sem `SONAR_PROJECT_KEY`).
+Os números vêm das anotações que o CI publica
 em cada job (`GET /repos/Gearflow-Fiap/gearflow-inventory-service/check-runs/<id do job>/annotations`, API pública, sem login):
 
 | Job | Medição | Gate |
 |---|---|---|
-| `unit` — *Build + testes unitários + cobertura* | **96,6%** de linhas | ≥ 80%: passou |
-| `coverage` — *Cobertura consolidada (gate 80%)* | **99,1%** de linhas, 92% de branches | ≥ 80%: passou |
+| `unit` — *Build + testes unitários + cobertura* | **95,8%** de linhas | ≥ 80%: passou |
+| `coverage` — *Cobertura consolidada (gate 80%)* | **99%** de linhas, 93,2% de branches | ≥ 80%: passou |
 
-A cobertura só da integração não é publicada pelo CI. O run anterior (`41918414705`, commit `db3f41e`, 2026-11-04) também passou nos dois
-gates, mas ainda não publicava os percentuais. Os números mudam a cada commit; o vigente é o do último run verde.
+A cobertura só da integração não é publicada pelo CI. Os runs anteriores também passaram nos dois gates: `42148394285` (commit `915ef73`,
+2026-11-06: 95,8% / 99% / 93,2%) e `42144143522` (commit `c0882a8`, 2026-11-05: 96,6% / 99,1% / 92%). Os números mudam a cada commit; o
+vigente é o do último run verde.
 
 ## Onde ver o número exato
 

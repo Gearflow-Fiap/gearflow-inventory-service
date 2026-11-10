@@ -24,7 +24,7 @@ Responsável por:
 | API REST (13 operações, JWT, ProblemDetails, OpenAPI/Scalar, health, métricas) | ✅ Pronto e testado de ponta a ponta |
 | Mensageria (MassTransit 8.5 + RabbitMQ, Outbox/Inbox no EF Core, consumers, retry, DLQ) | ✅ Pronto e **testado com RabbitMQ real** (ver [seção 7](#7-mensageria-rabbitmq--masstransit)) |
 | E-mails de estoque (baixo e insuficiente), por SMTP | ✅ Pronto e testado contra um Mailpit real |
-| Testes unitários, de arquitetura e de integração | ✅ 240 + 43 |
+| Testes unitários, de arquitetura e de integração | ✅ 240 + 46 |
 | BDD (Reqnroll) | ⏳ Fase 7 |
 | Imagem no GHCR (pública), CodeQL, varredura de dependências, Dependabot, gate de cobertura (unit + integração) | ✅ Rodando verde no GitHub desde 2026-11-04 (ver [seção 12](#12-cicd)) |
 | Manifests K8s (base, rota Kong, Postgres de exemplo) | ✅ Validados com kubeconform e em smoke test no Docker; **ainda não aplicados em cluster** ([k8s/README.md](k8s/README.md)) |
@@ -192,7 +192,8 @@ PostgreSQL, database `gearflow_inventory`, schema `inventory`, **instância pró
 | `stock_reservation_lines` | Linhas da reserva (PK composta: reserva, tipo, item) |
 | `OutboxMessage`, `OutboxState`, `InboxState` | Outbox e Inbox do MassTransit, na **mesma transação** do estoque |
 
-As migrations são aplicadas no startup (`MigrateAsync`, idempotente).
+As migrations são aplicadas no startup (`MigrateAsync`, idempotente), dentro de um *advisory lock* do PostgreSQL
+(`InventoryDatabaseMigrator`): as réplicas que sobem juntas num banco vazio migram uma de cada vez, sem o erro `42P07`.
 
 ---
 
@@ -379,24 +380,24 @@ Os handlers rodam sobre o **domínio real**, com repositórios em memória (sem 
 
 | Grupo | O que prova |
 |---|---|
-| `Persistence` | Migrations do zero, seed idempotente com IDs fixos, repositórios, **duas reservas da última unidade não commitam as duas** (`xmin` e transações Serializable), índice único por OS, reserva + mensagem do Outbox no mesmo commit |
+| `Persistence` | Migrations do zero, **réplicas migrando o mesmo banco vazio ao mesmo tempo** (advisory lock), seed idempotente com IDs fixos, repositórios, **duas reservas da última unidade não commitam as duas** (`xmin` e transações Serializable), índice único por OS, reserva + mensagem do Outbox no mesmo commit |
 | `Messaging` | A API completa com um bus de teste no papel do orquestrador (que configura o nome `inventory.<fato>` de cada evento que consome, como o `os-service` fará; e a exchange do tipo CLR não é mais criada): reserva, insuficiente (tudo ou nada + e-mail), liberação, consumo + alerta, duas OS disputando a última unidade, mensagem repetida (Inbox), `ReleaseStock` antes do `ReserveStock`, mensagem malformada direto na `_error`, `PATCH` publicando pelo Outbox do bus, `/health/ready` com banco e broker |
 | `Rest` | O contrato REST do frontend: CRUD de peças e insumos, 400/404/409 com `code` no ProblemDetails, consulta de reserva, OpenAPI com as 13 operações, 401 sem token válido |
 | `Email` | `SmtpEmailSender` contra um Mailpit real |
 
 **Meta: ≥ 80% de cobertura de linhas.** O árbitro é o CI (Linux, coverlet), que aplica **dois gates de 80%**: nos testes unitários
 (job `unit`) e no consolidado unitários + integração (job `coverage`). Os dois passaram. Números **medidos pelo CI** no run
-[42144143522](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/42144143522) (commit `c0882a8`, 2026-11-05),
+[42810312591](https://github.com/Gearflow-Fiap/gearflow-inventory-service/actions/runs/42810312591) (commit `9cd9057`, 2026-11-10),
 publicados como anotações do job:
 
 | | Linhas | Branches |
 |---|---|---|
-| Testes unitários e de arquitetura (job `unit`) | **96,6%** | n/d |
-| **Unitários + integração (job `coverage`)** | **99,1%** | 92% |
+| Testes unitários e de arquitetura (job `unit`) | **95,8%** | n/d |
+| **Unitários + integração (job `coverage`)** | **99%** | 93,2% |
 
 O CI não publica a cobertura só da integração, então ela não aparece aqui. Ficam fora da cobertura (`coverlet.runsettings`): `Program.cs`,
 migrations e o projeto de contratos. Cada novo run publica as duas anotações; os números acima são do run citado, e os commits seguintes
-(métricas de negócio, TLS) mudam o valor, então o número vigente é sempre o do último run verde.
+(como o lock de migration) mudam o valor, então o número vigente é sempre o do último run verde.
 Evidências e como ver o número exato de cada run (anotações do job e artefato `coverage-merged`): [`docs/coverage/`](docs/coverage/README.md).
 
 ---
@@ -507,7 +508,7 @@ Código migrado do BC `Inventory` do `gearflow-app` (ADR-001/002 do monólito):
 |---|---|
 | [0001](docs/adr/0001-postgresql-em-instancia-propria.md) | PostgreSQL em instância própria |
 | [0002](docs/adr/0002-reserva-por-os-idempotente-e-concorrencia.md) | Reserva por OS, idempotente e com concorrência otimista (`xmin`) |
-| [0003](docs/adr/0003-baixa-de-estoque-comandada-pela-saga.md) | Baixa de estoque comandada pela Saga (`ConsumeStock`). **Proposta** |
+| [0003](docs/adr/0003-baixa-de-estoque-comandada-pela-saga.md) | Baixa de estoque comandada pela Saga (`ConsumeStock`). **Aceita**: o orquestrador do `os-service` já a implementa |
 | [0004](docs/adr/0004-masstransit-8-com-outbox-no-ef-core.md) | MassTransit 8.5.x (Apache-2.0) com Outbox/Inbox no EF Core; falha permanente vai direto para a DLQ |
 | — | CQRS com `IDispatcher` próprio e `Result<T>` (sem MediatR, sem exceção de regra de negócio) |
 | — | Minimal API + OpenAPI/Scalar (as rotas do monólito ficam intactas) |

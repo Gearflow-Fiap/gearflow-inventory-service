@@ -47,7 +47,7 @@ Na primeira vez a integração demora mais porque baixa as imagens (`postgres:17
 | Suíte | O que prova |
 |---|---|
 | Unitários | Regras do domínio, handlers da Saga (tudo ou nada, idempotência, fora de ordem), validators, consumers, arquitetura (camadas, endpoints documentados e protegidos) |
-| Integração, `Persistence` | Migrations, seed, **duas reservas da última unidade não commitam as duas**, índice único por OS, reserva e Outbox no mesmo commit |
+| Integração, `Persistence` | Migrations (inclusive várias réplicas num banco vazio, com advisory lock), seed, **duas reservas da última unidade não commitam as duas**, índice único por OS, reserva e Outbox no mesmo commit |
 | Integração, `Messaging` | A API completa com RabbitMQ real: reserva, falta de estoque, liberação, consumo, repetição (Inbox), `Release` antes do `Reserve`, DLQ, `PATCH` via Outbox |
 | Integração, `Rest` | O contrato REST do frontend: CRUD, `400/404/409` com `code`, OpenAPI com 13 operações, `401` |
 | Integração, `Email` | Envio SMTP real contra um Mailpit |
@@ -273,7 +273,7 @@ O que **só** dá para validar quando o `os-service` (orquestrador), o Billing e
    - os dois usam o **mesmo RabbitMQ** (host, virtual host, credenciais);
    - o orquestrador tem **timeout**: falha permanente do Inventory (mensagem malformada, `ConsumeStock` sem reserva) não gera resposta, só vai para a DLQ;
    - o orquestrador reenvia `ReserveStock` ao receber `StockReplenished` (é o que o Inventory assume).
-3. **A decisão sobre quem manda baixar o estoque** ([ADR-0003](adr/0003-baixa-de-estoque-comandada-pela-saga.md), ainda "Proposed"): o código já suporta `ConsumeStock` enviado pela Saga.
+3. **Quem manda baixar o estoque** está decidido ([ADR-0003](adr/0003-baixa-de-estoque-comandada-pela-saga.md), aceita em 10/11): a Saga envia `ConsumeStock`, e o orquestrador do `os-service` já faz isso. Falta só alinhar o `fluxo-saga.md` do Billing.
 4. **De onde o Operation lê os preços** das peças (depende de decisão; o endpoint em lote ainda não existe).
 
 **Dica para o dia da integração:** troque o simulador pelo `os-service` real e rode de novo os mesmos conferires das seções 3 e 6. Se o simulador passa e o
