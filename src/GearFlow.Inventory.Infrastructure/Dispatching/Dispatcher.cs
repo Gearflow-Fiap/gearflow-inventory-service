@@ -11,7 +11,7 @@ namespace GearFlow.Inventory.Infrastructure.Dispatching;
 /// <summary>
 /// Dispatcher próprio (no lugar do MediatR, cuja licença ficou comercial). Resolve o handler no DI pelo
 /// tipo do command/query e o envolve no pipeline fixo, de fora para dentro:
-/// <c>log + span → validação → handler</c> (queries: <c>log + span → handler</c>).
+/// <c>log + span → métricas de negócio → validação → handler</c> (queries: <c>log + span → handler</c>).
 /// </summary>
 internal sealed class Dispatcher(IServiceProvider services) : IDispatcher
 {
@@ -56,6 +56,7 @@ internal sealed class Dispatcher(IServiceProvider services) : IDispatcher
             ICommandHandler<TCommand, TResult> pipeline = services.GetRequiredService<ICommandHandler<TCommand, TResult>>();
 
             pipeline = new ValidationDecorator<TCommand, TResult>(pipeline, services.GetServices<IValidator<TCommand>>());
+            pipeline = new BusinessMetricsDecorator<TCommand, TResult>(pipeline, services.GetRequiredService<IBusinessMetrics>());
             pipeline = new CommandLoggingDecorator<TCommand, TResult>(pipeline, services.GetRequiredService<ILogger<TCommand>>());
 
             return pipeline.HandleAsync((TCommand)command, ct);

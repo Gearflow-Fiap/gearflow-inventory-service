@@ -1,0 +1,22 @@
+# Rota do Inventory no Kong do gearflow-infra-k8s. Exige os KongPlugin `gearflow-jwt` e `gearflow-rate-limit` (já existem lá).
+# O Kong casa o prefixo mais longo, então /api/inventory vence o /api que ainda aponta para o monólito.
+# Chamadas entre serviços (ex.: Operation consultando preço) NÃO passam pelo Kong: usam o Service interno
+# http://gearflow-inventory.gearflow.svc.cluster.local:8080
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gearflow-inventory
+  annotations:
+    konghq.com/plugins: gearflow-jwt,gearflow-rate-limit
+spec:
+  ingressClassName: kong
+  rules:
+    - http:
+        paths:
+          - path: /api/inventory
+            pathType: Prefix
+            backend:
+              service:
+                name: gearflow-inventory
+                port:
+                  number: 8080

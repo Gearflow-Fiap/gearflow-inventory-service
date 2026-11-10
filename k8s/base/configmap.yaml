@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gearflow-inventory-config
+data:
+  ASPNETCORE_HTTP_PORTS: "8080"
+  ASPNETCORE_ENVIRONMENT: Production
+
+  # Mesmos valores do monólito e da Lambda (Jwt__Secret vem do Secret).
+  Jwt__Issuer: GearFlow.Api
+  Jwt__Audience: GearFlow.Client
+
+  # Broker compartilhado do gearflow-infra-broker (EKS gearflow-fase4): namespace `messaging`, vhost `gearflow`, AMQP na 5672 SEM TLS
+  # (decisão do grupo em 08/11/2026; não existe listener 5671 nem CA para montar). O acesso é restrito por usuário/senha, ACL por
+  # serviço e NetworkPolicy (label no namespace + label de Pod). O usuário é o `gearflow_inventory`, no Secret.
+  # Para um broker com TLS (o da `main` do infra-broker até 05/11): RabbitMq__Port=5671, RabbitMq__Tls=true e
+  # RabbitMq__CaCertificatePath apontando para o ca.crt montado (o código ainda suporta).
+  RabbitMq__Host: rabbitmq.messaging.svc.cluster.local
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: gearflow
+  RabbitMq__Tls: "false"
+
+  # Mailpit que já roda no namespace (gearflow-infra-k8s/k8s/gearflow/smtp).
+  Smtp__Host: smtp-service
+  Smtp__Port: "1025"
+  Smtp__From: no-reply@gearflow.com
+  Stock__AlertEmail: estoque@gearflow.com
+
+  # Catálogo de demonstração (peças P1..P6 com IDs fixos). Para o vídeo, trocar para "true" ou aplicar um patch.
+  Seed__EnableDevData: "false"
+
+  # Observabilidade reaproveitada da Fase 3 (mesmo caminho do monólito, gearflow-infra-k8s/terraform/app.tf): traces e métricas
+  # por OTLP para o New Relic. O header `api-key` sai da licença do Secret newrelic-apm-secret (OTEL_EXPORTER_OTLP_HEADERS no
+  # Deployment). Os spans do MassTransit fazem o trace atravessar o RabbitMQ.
+  Otlp__Endpoint: https://otlp.nr-data.net:4317
+
+  # O agente do New Relic precisa de um diretório gravável (o sistema de arquivos do contêiner é somente leitura).
+  # NÃO definir DOTNET_EnableDiagnostics=0 aqui: ele desliga o profiler do CLR e o agente deixa de funcionar.
+  NEW_RELIC_LOG_DIRECTORY: /tmp/newrelic

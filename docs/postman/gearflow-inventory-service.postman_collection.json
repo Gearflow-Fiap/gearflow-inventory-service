@@ -1,0 +1,782 @@
+{
+  "info": {
+    "name": "gearflow-inventory-service",
+    "description": "API do Inventory Service (estoque de peças e insumos + consulta de reservas da Saga).\n\n1. Suba a API (`dotnet run --project src/GearFlow.Inventory.Api`, porta 5081) ou aponte `baseUrl` para o cluster.\n2. Gere um JWT de desenvolvimento: `.\\scripts\\New-DevToken.ps1` e cole em `token` (variável da collection ou do environment).\n3. Rode a collection (Runner) na ordem das pastas. Cada requisição traz testes de status e de contrato.\n\nDocumentação interativa: `{{baseUrl}}/scalar/v1`. Contrato: `{{baseUrl}}/openapi/v1.json`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5081"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "partId",
+      "value": ""
+    },
+    {
+      "key": "consumableId",
+      "value": ""
+    },
+    {
+      "key": "serviceOrderId",
+      "value": "11111111-1111-1111-1111-111111111111"
+    }
+  ],
+  "item": [
+    {
+      "name": "Peças",
+      "description": "Rodar na ordem: o POST guarda o id em {{partId}} e o DELETE no final apaga só a peça criada aqui (o catálogo de demonstração fica intacto).",
+      "item": [
+        {
+          "name": "Cadastra uma peça",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Vela de ignição\",\n  \"description\": \"Vela iridium\",\n  \"partNumber\": \"V-1\",\n  \"manufacturer\": \"NGK\",\n  \"priceCents\": 4500,\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('devolve o id e o saldo', () => { pm.expect(body.id).to.be.a('string'); pm.expect(body.quantity).to.eql(10); });",
+                  "pm.collectionVariables.set('partId', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lista as peças",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('é uma lista com a peça criada', () => { const ids = pm.response.json().map(p => p.id); pm.expect(ids).to.include(pm.collectionVariables.get('partId')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Busca uma peça por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts/{{partId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts",
+                "{{partId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Atualiza uma peça",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts/{{partId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts",
+                "{{partId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Vela de ignição (atualizada)\",\n  \"description\": \"Vela iridium\",\n  \"partNumber\": \"V-1\",\n  \"manufacturer\": \"NGK\",\n  \"priceCents\": 4800,\n  \"quantity\": 12\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('preço atualizado', () => pm.expect(pm.response.json().priceCents).to.eql(4800));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Adiciona estoque a uma peça",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts/{{partId}}/stock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts",
+                "{{partId}}",
+                "stock"
+              ]
+            },
+            "description": "Soma ao disponível e publica o evento inventory.stock-replenished (o orquestrador reenvia ReserveStock das OS que aguardavam).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo somado (12 + 10)', () => pm.expect(pm.response.json().quantity).to.eql(22));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove uma peça",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts/{{partId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts",
+                "{{partId}}"
+              ]
+            },
+            "description": "204 se não há unidade reservada por OS; 409 (Part.HasActiveReservations) se houver."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Insumos",
+      "description": "Mesma ordem das peças. Quantidades são decimais (litros, quilos).",
+      "item": [
+        {
+          "name": "Cadastra um insumo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/consumables",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "consumables"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Graxa branca\",\n  \"unitPriceCents\": 2500,\n  \"quantity\": 5.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('devolve o id e o saldo', () => { pm.expect(body.id).to.be.a('string'); pm.expect(body.quantity).to.eql(5.5); });",
+                  "pm.collectionVariables.set('consumableId', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lista os insumos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/consumables",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "consumables"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('é uma lista com o insumo criado', () => { const ids = pm.response.json().map(c => c.id); pm.expect(ids).to.include(pm.collectionVariables.get('consumableId')); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Busca um insumo por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/consumables/{{consumableId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "consumables",
+                "{{consumableId}}"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Atualiza um insumo",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/consumables/{{consumableId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "consumables",
+                "{{consumableId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Graxa branca (atualizada)\",\n  \"unitPriceCents\": 2700,\n  \"quantity\": 6\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('preço atualizado', () => pm.expect(pm.response.json().unitPriceCents).to.eql(2700));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Adiciona estoque a um insumo",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/consumables/{{consumableId}}/stock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "consumables",
+                "{{consumableId}}",
+                "stock"
+              ]
+            },
+            "description": "Soma ao disponível e publica o evento inventory.stock-replenished.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('saldo somado (6 + 2,5)', () => pm.expect(pm.response.json().quantity).to.eql(8.5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove um insumo",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/consumables/{{consumableId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "consumables",
+                "{{consumableId}}"
+              ]
+            },
+            "description": "204 se não há quantidade reservada por OS; 409 se houver."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reservas (Saga)",
+      "description": "Só leitura. Reservar, liberar e consumir são comandos da Saga pelo RabbitMQ (ReserveStock, ReleaseStock, ConsumeStock), nunca REST. Para criar uma reserva use o simulador (dotnet run --project tools/GearFlow.Inventory.SagaSimulator -- reserve --order <guid> ...) e coloque o mesmo guid em {{serviceOrderId}}.",
+      "item": [
+        {
+          "name": "Consulta a reserva de uma OS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/reservations/service-order/{{serviceOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "reservations",
+                "service-order",
+                "{{serviceOrderId}}"
+              ]
+            },
+            "description": "200 com status (Reserved, Released ou Consumed) e as linhas; 404 se a OS não tem reserva."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 (há reserva) ou 404 (OS sem reserva)', () => pm.expect([200, 404]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) pm.test('status válido', () => pm.expect(['Reserved', 'Released', 'Consumed']).to.include(pm.response.json().status));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Erros esperados",
+      "description": "Contrato de erro: ProblemDetails com o campo `code`.",
+      "item": [
+        {
+          "name": "400: peça sem nome",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"description\": \"Vela iridium\",\n  \"partNumber\": \"V-1\",\n  \"manufacturer\": \"NGK\",\n  \"priceCents\": 4500,\n  \"quantity\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('code = Part.NameRequired', () => pm.expect(JSON.stringify(pm.response.json())).to.include('Part.NameRequired'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "404: peça inexistente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts/00000000-0000-0000-0000-00000000dead",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts",
+                "00000000-0000-0000-0000-00000000dead"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('code = Part.NotFound', () => pm.expect(JSON.stringify(pm.response.json())).to.include('Part.NotFound'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "401: sem token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/parts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "inventory",
+                "parts"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health e documentação",
+      "description": "Sem autenticação (as probes do Kubernetes usam estas rotas).",
+      "item": [
+        {
+          "name": "Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Readiness (banco + RabbitMQ)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "ready"
+              ]
+            },
+            "description": "200 Healthy, ou 200 Degraded com o RabbitMQ fora (as publicações ficam no Outbox); 503 com o banco fora.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OpenAPI (JSON)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/openapi/v1.json",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "openapi",
+                "v1.json"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

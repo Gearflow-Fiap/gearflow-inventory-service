@@ -17,7 +17,7 @@ na máquina de desenvolvimento (Windows, PowerShell) e os resultados mostrados s
 | Mensageria (Outbox, Inbox, retry, DLQ, e-mails) | ✅ Sim | Seções 2, 3 e 6 |
 | Resiliência (API fora do ar, RabbitMQ cai e volta) | ✅ Sim | [Seção 6](#6-testar-falhas-e-resiliência) |
 | **Fluxo completo de uma OS** passando por OS → Billing → Operation → Inventory | ❌ Só quando os outros ficarem prontos | [Seção 7](#7-o-que-depende-dos-outros) |
-| Deploy no Kubernetes, Kong, New Relic | ❌ Fase 8 (ainda não feita) | — |
+| Deploy no Kubernetes, Kong, New Relic | 🟡 Manifestos, workflow de deploy e export OTLP escritos; falta rodar no cluster | [k8s/README.md](../k8s/README.md) |
 
 ---
 
@@ -34,12 +34,12 @@ na máquina de desenvolvimento (Windows, PowerShell) e os resultados mostrados s
 Sem montar nada à mão. Os testes de integração sobem Postgres, RabbitMQ e Mailpit sozinhos (Testcontainers).
 
 ```powershell
-# 249 testes no total
+# 283 testes no total
 dotnet test GearFlow.Inventory.slnx -c Release
 
 # ou separados
-dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 207 testes, ~5 s, sem Docker
-dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release   # 42 testes, ~35 s, precisa do Docker
+dotnet test tests/GearFlow.Inventory.UnitTests -c Release          # 240 testes, ~5 s, sem Docker
+dotnet test tests/GearFlow.Inventory.IntegrationTests -c Release   # 43 testes, ~35 s, precisa do Docker
 ```
 
 Na primeira vez a integração demora mais porque baixa as imagens (`postgres:17`, `rabbitmq:4-management`, `axllent/mailpit`).
@@ -47,7 +47,7 @@ Na primeira vez a integração demora mais porque baixa as imagens (`postgres:17
 | Suíte | O que prova |
 |---|---|
 | Unitários | Regras do domínio, handlers da Saga (tudo ou nada, idempotência, fora de ordem), validators, consumers, arquitetura (camadas, endpoints documentados e protegidos) |
-| Integração, `Persistence` | Migrations, seed, **duas reservas da última unidade não commitam as duas**, índice único por OS, reserva e Outbox no mesmo commit |
+| Integração, `Persistence` | Migrations (inclusive várias réplicas num banco vazio, com advisory lock), seed, **duas reservas da última unidade não commitam as duas**, índice único por OS, reserva e Outbox no mesmo commit |
 | Integração, `Messaging` | A API completa com RabbitMQ real: reserva, falta de estoque, liberação, consumo, repetição (Inbox), `Release` antes do `Reserve`, DLQ, `PATCH` via Outbox |
 | Integração, `Rest` | O contrato REST do frontend: CRUD, `400/404/409` com `code`, OpenAPI com 13 operações, `401` |
 | Integração, `Email` | Envio SMTP real contra um Mailpit |
@@ -122,6 +122,7 @@ O código de saída é `0` se tudo passou e `1` se algo falhou (serve para scrip
 |---|---|---|
 | **API (Scalar)** | http://localhost:5081/scalar/v1 | Documentação interativa. Clique em **Authorize** e cole o token |
 | **RabbitMQ** | http://localhost:15672 (`guest` / `guest`), aba **Queues** | As 5 filas `inventory-*` com 1 consumidor cada; a `inventory-reserve-stock_error` com a mensagem do cenário `poison` |
+| **RabbitMQ** | Aba **Exchanges** | Eventos em `inventory.stock-reserved`, `inventory.stock-insufficient`, `inventory.stock-released`, `inventory.stock-consumed`, `inventory.stock-replenished` e `inventory.low-stock-alert` (as duas últimas criadas só quando publicadas ou ligadas a uma fila); nenhuma exchange `GearFlow.Contracts:Stock…` |
 | **Mailpit** | http://localhost:8025 | 2 e-mails em `estoque@gearflow.com`: "Estoque insuficiente para a OS …" (cenário `shortage`) e "Estoque baixo: Água desmineralizada (L)" (cenário `lowstock`) |
 | **Postgres** | `docker exec -i gearflow-inventory-service-postgres-1 psql -U gearflow -d gearflow_inventory` | Ver abaixo |
 
@@ -157,7 +158,9 @@ Cada um roda sozinho: `dotnet run --project tools/GearFlow.Inventory.SagaSimulat
 
 ## 5. Testar pela API REST
 
-Abra http://localhost:5081/scalar/v1, clique em **Authorize** e cole o token do passo 3 (sem o `Bearer `). Ou use o PowerShell:
+Abra http://localhost:5081/scalar/v1, clique em **Authorize** e cole o token do passo 3 (sem o `Bearer `). Ou importe a
+[collection do Postman](postman/gearflow-inventory-service.postman_collection.json) (com o environment `…local.postman_environment.json`),
+cole o token na variável `token` e rode a collection na ordem das pastas. Ou use o PowerShell:
 
 ```powershell
 $h = @{ Authorization = "Bearer $(.\scripts\New-DevToken.ps1)" }
@@ -264,11 +267,13 @@ O que **só** dá para validar quando o `os-service` (orquestrador), o Billing e
 1. **O fluxo ponta a ponta de uma OS**: abrir OS → diagnóstico → orçamento → pagamento → `ReserveStock` → execução → `ConsumeStock` → entrega, e o cenário "pagou, faltou estoque" com reembolso.
 2. **Que os dois lados falam a mesma língua.** Quando o `os-service` ficar pronto, confira:
    - os tipos de mensagem têm o **mesmo namespace e nome** (`GearFlow.Contracts:ReserveStock` etc.): compare com `src/GearFlow.Contracts/InventoryMessages.cs`;
+   - o `os-service` configurou o **nome da exchange de cada evento que consome** (`inventory.stock-reserved` etc., mapa em `InventoryEventNames.All`): sem isso ele
+     liga a fila na exchange antiga e nunca recebe a resposta (o simulador faz isso em `Simulator.cs`; copie o mesmo trecho);
    - os campos batem (`CorrelationId` = `ServiceOrderId`, `Items[]` com `ItemType` como **texto**, quantidades decimais);
    - os dois usam o **mesmo RabbitMQ** (host, virtual host, credenciais);
    - o orquestrador tem **timeout**: falha permanente do Inventory (mensagem malformada, `ConsumeStock` sem reserva) não gera resposta, só vai para a DLQ;
    - o orquestrador reenvia `ReserveStock` ao receber `StockReplenished` (é o que o Inventory assume).
-3. **A decisão sobre quem manda baixar o estoque** ([ADR-0003](adr/0003-baixa-de-estoque-comandada-pela-saga.md), ainda "Proposed"): o código já suporta `ConsumeStock` enviado pela Saga.
+3. **Quem manda baixar o estoque** está decidido ([ADR-0003](adr/0003-baixa-de-estoque-comandada-pela-saga.md), aceita em 10/11): a Saga envia `ConsumeStock`, e o orquestrador do `os-service` já faz isso. Falta só alinhar o `fluxo-saga.md` do Billing.
 4. **De onde o Operation lê os preços** das peças (depende de decisão; o endpoint em lote ainda não existe).
 
 **Dica para o dia da integração:** troque o simulador pelo `os-service` real e rode de novo os mesmos conferires das seções 3 e 6. Se o simulador passa e o

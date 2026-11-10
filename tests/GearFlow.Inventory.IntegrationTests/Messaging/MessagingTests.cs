@@ -55,6 +55,27 @@ public sealed class MessagingTests(InfrastructureFixture fx) : IAsyncLifetime
         return reservation?.Status;
     }
 
+    // ---- Topologia: exchanges dos eventos --------------------------------------
+
+    [Fact]
+    public async Task Events_go_out_on_inventory_dot_fact_exchanges_and_never_on_the_clr_type_name()
+    {
+        var part = await fx.SeedPartAsync(10);
+        var serviceOrderId = Guid.NewGuid();
+        await Reserve(serviceOrderId, [PartLine(part, 1)]);
+        await fx.Bus.WaitForAsync<StockReserved>(m => m.CorrelationId == serviceOrderId);
+
+        // O consumidor do teste só recebeu porque o Inventory publicou em inventory.stock-reserved.
+        (await fx.Management.ExchangeExistsAsync("inventory.stock-reserved")).Should().BeTrue();
+        // Os consumers de e-mail do próprio Inventory ligam as filas a essas exchanges já no startup.
+        (await fx.Management.ExchangeExistsAsync("inventory.stock-insufficient")).Should().BeTrue();
+        (await fx.Management.ExchangeExistsAsync("inventory.low-stock-alert")).Should().BeTrue();
+
+        foreach (var (type, exchange) in InventoryEventNames.All)
+            (await fx.Management.ExchangeExistsAsync($"{type.Namespace}:{type.Name}")).Should()
+                .BeFalse($"{type.Name} é evento e vai para {exchange}, não para a exchange do tipo CLR");
+    }
+
     // ---- Reserva -------------------------------------------------------------
 
     [Fact]

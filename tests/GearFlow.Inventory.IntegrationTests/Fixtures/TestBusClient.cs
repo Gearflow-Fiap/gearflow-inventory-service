@@ -37,6 +37,14 @@ internal sealed class TestBusClient : IAsyncDisposable
                 h.Password(password);
             });
 
+            // Consumidor dos eventos: o nome da exchange (inventory.<fato>) precisa ser configurado antes dos endpoints.
+            EventName<StockReserved>(cfg);
+            EventName<StockInsufficient>(cfg);
+            EventName<StockReleased>(cfg);
+            EventName<StockConsumed>(cfg);
+            EventName<StockReplenished>(cfg);
+            EventName<LowStockAlert>(cfg);
+
             cfg.ReceiveEndpoint($"integration-test-{Guid.NewGuid():N}", endpoint =>
             {
                 endpoint.AutoDelete = true;
@@ -54,6 +62,9 @@ internal sealed class TestBusClient : IAsyncDisposable
         await bus.StartAsync(new CancellationTokenSource(TimeSpan.FromSeconds(60)).Token);
         return new TestBusClient(bus, messages);
     }
+
+    private static void EventName<T>(IRabbitMqBusFactoryConfigurator cfg) where T : class =>
+        cfg.Message<T>(message => message.SetEntityName(InventoryEventNames.All[typeof(T)]));
 
     private static void Capture<T>(IReceiveEndpointConfigurator endpoint, ConcurrentQueue<Received> messages) where T : class =>
         endpoint.Handler<T>(context =>

@@ -1,3 +1,4 @@
+using System.Security.Authentication;
 using GearFlow.Inventory.Application.Abstractions;
 using GearFlow.Inventory.Infrastructure.Messaging.Consumers;
 using GearFlow.Inventory.Infrastructure.Persistence;
@@ -24,6 +25,9 @@ public static class MessagingServiceCollectionExtensions
     {
         var options = configuration.GetSection(RabbitMqOptions.SectionName).Get<RabbitMqOptions>() ?? new RabbitMqOptions();
 
+        // Cria o validador aqui (e não dentro do bus) para o serviço falhar no startup se a CA do broker não estiver montada.
+        var tlsValidator = options.Tls ? RabbitMqTls.CreateValidator(options.CaCertificatePath) : null;
+
         services.AddScoped<IMessagePublisher, MassTransitMessagePublisher>();
 
         services.AddMassTransit(x =>
@@ -43,10 +47,20 @@ public static class MessagingServiceCollectionExtensions
 
             x.UsingRabbitMq((context, cfg) =>
             {
+                cfg.ConfigureInventoryEventNames();
+
                 cfg.Host(options.Host, options.Port, options.VirtualHost, host =>
                 {
                     host.Username(options.Username);
                     host.Password(options.Password);
+
+                    if (tlsValidator is not null)
+                        host.UseSsl(ssl =>
+                        {
+                            ssl.Protocol = SslProtocols.Tls12 | SslProtocols.Tls13;
+                            ssl.ServerName = options.Host;   // o certificado do broker tem este nome nos SANs
+                            ssl.CertificateValidationCallback = tlsValidator;
+                        });
                 });
 
                 ConfigureEndpoint<ReserveStockConsumer>(cfg, context, QueueNames.ReserveStock, options);

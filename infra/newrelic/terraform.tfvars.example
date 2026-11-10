@@ -1,0 +1,11 @@
+# Copie para terraform.tfvars (ignorado pelo Git) e preencha. A API key NÃO vai neste arquivo: use
+#   $env:TF_VAR_newrelic_api_key = '<User API Key NRAK-...>'      (PowerShell)
+#   export TF_VAR_newrelic_api_key='<User API Key NRAK-...>'      (bash)
+newrelic_account_id  = "0000000"
+newrelic_alert_email = "alertas@example.com"
+
+# Opcionais (valores padrão abaixo):
+# service_name         = "GearFlow.Inventory.Api"
+# cluster_name         = "gearflow-fase4"   # global.cluster do Helm do nri-bundle
+# kubernetes_namespace = "gearflow"
+# healthcheck_url      = "http://<host público>/health/ready"

@@ -1,9 +1,12 @@
-name: CI
+name: gearflow-inventory-service.ci
 
-# Pipeline do Inventory Service: build, testes unitários com gate de cobertura (>= 80%, meta do desafio) e testes
-# de integração (Postgres + RabbitMQ + Mailpit reais, via Testcontainers).
-# Ainda faltam (fase 8 do plano): SonarCloud com quality gate, build/push da imagem no GHCR e
-# deploy automático no Kubernetes + smoke test em /health/ready.
+# Pipeline do Inventory Service: build, testes unitários com gate de cobertura (>= 80%, meta do desafio), testes de
+# integração (Postgres + RabbitMQ + Mailpit reais, via Testcontainers), varredura de dependências vulneráveis e um
+# relatório de cobertura consolidado (unitários + integração) com o mesmo gate de 80%.
+# Também valida os manifestos Kubernetes (kubeconform) e, quando o projeto existir no SonarCloud, roda a análise com
+# quality gate (job `sonar`, ligado pela variável SONAR_PROJECT_KEY).
+# Outros workflows: codeql.yml (análise estática), docker-publish.yml (imagem no GHCR) e delivery.yml (deploy no
+# Kubernetes, ligado pela variável DEPLOY_ENABLED; pré-requisitos em k8s/README.md).
 
 on:
   push:
@@ -62,6 +65,9 @@ jobs:
           report=$(find coverage/unit -name coverage.cobertura.xml | head -1)
           rate=$(grep -o 'line-rate="[0-9.]*"' "$report" | head -1 | grep -o '[0-9.]*')
           echo "Cobertura de linhas dos testes unitários: $rate (mínimo: $COVERAGE_MIN)"
+          pct=$(awk -v r="$rate" 'BEGIN { printf "%.1f", r * 100 }')
+          # Anotação: aparece no resumo do run e é legível pela API pública (check-runs/<id>/annotations), sem login.
+          echo "::notice title=Cobertura (unitários)::Linhas ${pct}% (mínimo $(awk -v m="$COVERAGE_MIN" 'BEGIN { printf "%d", m * 100 }')%)"
           awk -v r="$rate" -v m="$COVERAGE_MIN" 'BEGIN { exit !(r >= m) }' \
             || { echo "::error::Cobertura abaixo de $COVERAGE_MIN"; exit 1; }
 
@@ -102,3 +108,171 @@ jobs:
           name: coverage-integration
           path: ./coverage/integration/**/coverage.cobertura.xml
           if-no-files-found: ignore
+
+  security:
+    name: Security (pacotes vulneráveis e obsoletos)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('Directory.Packages.props') }}
+          restore-keys: nuget-
+
+      - name: Restore
+        run: dotnet restore GearFlow.Inventory.slnx
+
+      # Pacotes com CVE conhecido (inclui transitivos). O `dotnet list` pode sair com código 1 ao topar com
+      # projetos que não usam PackageReference, então NÃO usamos pipefail/-e aqui: o veredito vem do grep.
+      - name: Pacotes vulneráveis (falha se houver)
+        run: |
+          dotnet list GearFlow.Inventory.slnx package --vulnerable --include-transitive > vulnerable.txt 2>&1 || true
+          cat vulnerable.txt
+          if grep -qiE 'has the following vulnerable packages' vulnerable.txt; then
+            echo "::error::Dependências vulneráveis encontradas. Veja o log acima."
+            exit 1
+          fi
+          echo "Sem pacotes vulneráveis." >> "$GITHUB_STEP_SUMMARY"
+
+      # Pacotes obsoletos: só informa no resumo, não quebra o build.
+      - name: Pacotes obsoletos (só relatório)
+        if: always()
+        run: |
+          {
+            echo "### Pacotes obsoletos";
+            echo '```';
+            dotnet list GearFlow.Inventory.slnx package --deprecated 2>&1 || true;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  coverage:
+    name: Cobertura consolidada (gate 80%)
+    runs-on: ubuntu-latest
+    needs: [ unit, integration ]
+    permissions:
+      contents: read
+      pull-requests: write    # comentário fixo de cobertura no PR
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      # Sem `name`, baixa todos os artefatos (coverage-unit e coverage-integration), cada um na sua subpasta.
+      - name: Baixa os relatórios de cobertura
+        uses: actions/download-artifact@v8
+        with:
+          path: ./coverage-all
+
+      - name: Junta unitários + integração
+        run: >
+          dotnet tool run reportgenerator
+          -reports:"./coverage-all/**/coverage.cobertura.xml"
+          -targetdir:"./coverage-report"
+          -reporttypes:"Cobertura;TextSummary;MarkdownSummaryGithub"
+
+      - name: Resumo da cobertura
+        run: cat ./coverage-report/Summary.txt
+
+      - name: Gate de cobertura (unitários + integração)
+        run: |
+          set -euo pipefail
+          LINE=$(grep -oP 'Line coverage:\s*\K[0-9.]+' ./coverage-report/Summary.txt | head -n1 || true)
+          BRANCH=$(grep -oP 'Branch coverage:\s*\K[0-9.]+' ./coverage-report/Summary.txt | head -n1 || true)
+          LINE=${LINE:-0}; BRANCH=${BRANCH:-0}
+          MIN=$(awk -v m="$COVERAGE_MIN" 'BEGIN { printf "%d", m * 100 }')
+          echo "Linhas: ${LINE}% (mínimo ${MIN}%) · Branches: ${BRANCH}% (informativo)" | tee -a "$GITHUB_STEP_SUMMARY"
+          # Anotação legível pela API pública (check-runs/<id>/annotations): é a evidência citada em docs/coverage/README.md.
+          echo "::notice title=Cobertura consolidada (unit + integração)::Linhas ${LINE}% (mínimo ${MIN}%) · Branches ${BRANCH}%"
+          awk -v c="$LINE" -v m="$COVERAGE_MIN" 'BEGIN { exit !(c / 100 >= m) }' \
+            || { echo "::error::Cobertura de linhas ${LINE}% abaixo do mínimo de ${MIN}%."; exit 1; }
+
+      # Comentário fixo de cobertura no PR (recria a cada push). É conveniência: não derruba o gate (ex.: PR de fork).
+      - name: Comentário de cobertura no PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v3.0.5
+        with:
+          recreate: true
+          path: ./coverage-report/SummaryGithub.md
+
+      - name: Publica o relatório consolidado
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-merged
+          path: ./coverage-report
+          if-no-files-found: ignore
+
+  manifests:
+    name: Manifestos Kubernetes (kubeconform)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Valida o que o deploy vai aplicar (base + rota Kong) e o Postgres de exemplo.
+      - name: Valida os manifestos renderizados
+        run: |
+          set -euo pipefail
+          for target in k8s/base k8s/overlays/kong; do
+            echo "::group::$target"
+            kubectl kustomize "$target" | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary
+            echo "::endgroup::"
+          done
+          echo "::group::k8s/local-postgres"
+          docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary < k8s/local-postgres/statefulset.yaml
+          echo "::endgroup::"
+
+  sonar:
+    name: SonarCloud (quality gate)
+    # Fica desligado até configurarem o projeto no SonarCloud: variável SONAR_PROJECT_KEY (+ SONAR_ORG) e secret SONAR_TOKEN.
+    # Em PR de fork os secrets não existem, então não roda.
+    if: >-
+      vars.SONAR_PROJECT_KEY != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # o Sonar usa o histórico para separar código novo do antigo
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Instala o scanner
+        run: dotnet tool install --global dotnet-sonarscanner --version 12.0.0
+
+      - name: Analisa, mede cobertura e exige o quality gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_ORG: ${{ vars.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SONAR_TOKEN" ] || [ -z "$SONAR_ORG" ]; then
+            echo "::error::Defina o secret SONAR_TOKEN e a variável SONAR_ORG."; exit 1
+          fi
+          # O scanner lê OpenCover; o coverlet.runsettings gera Cobertura para os demais jobs. Troca só neste job (não é commitado).
+          sed -i 's#<Format>cobertura</Format>#<Format>opencover</Format>#' coverlet.runsettings
+          dotnet sonarscanner begin /k:"$SONAR_PROJECT_KEY" /o:"$SONAR_ORG" \
+            /d:sonar.token="$SONAR_TOKEN" /d:sonar.host.url=https://sonarcloud.io \
+            /d:sonar.cs.opencover.reportsPaths="coverage/sonar/**/coverage.opencover.xml" \
+            /d:sonar.coverage.exclusions="**/Migrations/**,**/Program.cs,src/GearFlow.Contracts/**,tools/**" \
+            /d:sonar.exclusions="**/Migrations/**,tools/**" \
+            /d:sonar.qualitygate.wait=true
+          dotnet build GearFlow.Inventory.slnx -c Release
+          dotnet test GearFlow.Inventory.slnx -c Release --no-build \
+            --settings coverlet.runsettings --collect:"XPlat Code Coverage" --results-directory ./coverage/sonar
+          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"

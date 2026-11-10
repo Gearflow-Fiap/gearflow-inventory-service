@@ -1,0 +1,97 @@
+# Exemplo para desenvolvimento/demonstração, FORA da base (mesmo critério do k8s/local-mongo do Billing).
+# Produção deve usar um PostgreSQL gerenciado, com backup e credenciais próprias. Instância exclusiva do Inventory:
+# nenhum outro serviço acessa este banco.
+#
+# Pré-requisito: Secret `gearflow-inventory-postgres` com a chave POSTGRES_PASSWORD (ver k8s/README.md) e uma
+# StorageClass padrão no cluster para o PVC.
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-postgres
+  namespace: gearflow
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: inventory-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: inventory-postgres
+  namespace: gearflow
+spec:
+  serviceName: inventory-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inventory-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inventory-postgres
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:17
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: gearflow_inventory
+            - name: POSTGRES_USER
+              value: gearflow
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gearflow-inventory-postgres
+                  key: POSTGRES_PASSWORD
+            # Subdiretório: a raiz do volume tem lost+found e o initdb recusa diretório não vazio.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U gearflow -d gearflow_inventory"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U gearflow -d gearflow_inventory"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi

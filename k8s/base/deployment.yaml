@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gearflow-inventory
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gearflow-inventory
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gearflow-inventory
+        # Exigida pela NetworkPolicy do broker (junto com a label gearflow.io/messaging-access=true no namespace):
+        # sem as duas, a conexão na 5672 é bloqueada. Precisa estar no template dos Pods, não só no Deployment.
+        gearflow.io/rabbitmq-client: "true"
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          # Substituída no deploy por `kustomize edit set image` (ghcr.io/gearflow-fiap/gearflow-inventory-service:sha-<commit>).
+          image: gearflow-inventory-service:unpublished
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gearflow-inventory-config
+            - secretRef:
+                name: gearflow-inventory-secret
+          env:
+            # Chave de licença do Secret que o gearflow-infra-k8s já cria no namespace. Opcional: sem ele o agente só não reporta.
+            - name: NEW_RELIC_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: newrelic-apm-secret
+                  key: NEW_RELIC_LICENSE_KEY
+                  optional: true
+            # O OTLP do New Relic autentica por `api-key` (a mesma licença). O $(...) é expandido pelo Kubernetes e exige que
+            # NEW_RELIC_LICENSE_KEY venha ANTES nesta lista.
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              value: "api-key=$(NEW_RELIC_LICENSE_KEY)"
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp
+          # A migration roda no startup (Program.cs), por isso a janela do startupProbe é larga: 60 x 2s.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: 60
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          # /health/ready checa banco (falha = 503) e RabbitMQ (falha = Degraded, HTTP 200: as publicações ficam no Outbox).
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+      volumes:
+        - name: temporary
+          emptyDir:
+            sizeLimit: 64Mi

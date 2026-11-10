@@ -47,6 +47,15 @@ internal sealed class Simulator : IAsyncDisposable
                 h.Password(connection.Password);
             });
 
+            // Consumidor dos eventos: o nome da exchange (inventory.<fato>) precisa ser configurado antes dos endpoints.
+            // É o mesmo que o os-service tem de fazer para cada evento do Inventory que consome.
+            EventName<StockReserved>(cfg);
+            EventName<StockInsufficient>(cfg);
+            EventName<StockReleased>(cfg);
+            EventName<StockConsumed>(cfg);
+            EventName<StockReplenished>(cfg);
+            EventName<LowStockAlert>(cfg);
+
             // Fila temporária (some quando o simulador termina), ligada às exchanges dos eventos do Inventory.
             cfg.ReceiveEndpoint($"saga-simulator-{Guid.NewGuid():N}", endpoint =>
             {
@@ -76,6 +85,9 @@ internal sealed class Simulator : IAsyncDisposable
         simulator = new Simulator(bus, replies);
         return simulator;
     }
+
+    private static void EventName<T>(IRabbitMqBusFactoryConfigurator cfg) where T : class =>
+        cfg.Message<T>(message => message.SetEntityName(InventoryEventNames.All[typeof(T)]));
 
     // ---- Comandos da Saga -------------------------------------------------------
 

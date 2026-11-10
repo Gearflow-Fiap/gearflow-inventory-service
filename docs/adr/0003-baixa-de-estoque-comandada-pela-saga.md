@@ -1,8 +1,8 @@
 # ADR-0003: Baixa de estoque comandada pela Saga (`ConsumeStock`)
 
-**Status**: Proposed (a confirmar com o time e com quem implementa o `os-service`)
+**Status**: Accepted (2026-11-10). Proposta em 2026-10-21; confirmada pelo código do `os-service` (ver "Confirmação").
 **Date**: 2026-10-21
-**Decided by**: —
+**Decided by**: aceita pela implementação do orquestrador no `os-service` (commit `65da498`, 2026-11-05). Não houve ata do grupo.
 
 ## Context
 
@@ -38,6 +38,22 @@ explícito no fluxo.
 
 ### Mitigations
 - Atualizar `fluxo-saga.md`, o README do Billing e a tabela de contratos junto com este ADR.
+
+## Confirmação (2026-11-10)
+
+Lido em `gearflow-os-service`, branch `dev` (`SagaOrchestrator` e `ServiceOrder`):
+
+- Ao receber `ExecutionFinished`, o OS envia `ConsumeStock` à fila `inventory-consume-stock`, só se a OS tem reserva (`OnExecutionFinished`).
+- Ao receber `StockConsumed`, o OS marca a baixa (`ApplyStockConsumed`).
+- `Deliver` recusa a entrega com `Os.StockPending` enquanto houver reserva sem baixa. Na implementação do OS, a "finalização" do ADR é a
+  entrega da OS (`Completed`).
+- Ao receber `StockReplenished`, o OS reenvia `ReserveStock` às OS em `AwaitingParts` (`OnStockReplenished`), como o Inventory assume.
+
+**Divergências que ficam abertas** (são do OS e da documentação, não do Inventory):
+
+- A ordem do OS é reservar **antes** de cobrar (`ReserveStock` → `RequestPayment`). O `fluxo-saga.md` do Billing e a RFC-001 do Operation
+  ainda descrevem a ordem anterior.
+- O OS não tem timeout: se o Inventory não responder (falha permanente vai para a DLQ, sem resposta), a OS fica esperando.
 
 ## Alternatives Considered
 
