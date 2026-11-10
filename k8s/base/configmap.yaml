@@ -10,14 +10,15 @@ data:
   Jwt__Issuer: GearFlow.Api
   Jwt__Audience: GearFlow.Client
 
-  # Broker compartilhado do gearflow-infra-broker (EKS gearflow-fase4): namespace `messaging`, vhost `gearflow` e AMQPS na 5671,
-  # obrigatório (não existe listener 5672). O certificado do broker é de uma CA privada e traz este host nos SANs; o ca.crt vem do
-  # ConfigMap `rabbitmq-ca`, montado no Deployment (veja k8s/README.md). O usuário é o `gearflow_inventory`, no Secret.
+  # Broker compartilhado do gearflow-infra-broker (EKS gearflow-fase4): namespace `messaging`, vhost `gearflow`, AMQP na 5672 SEM TLS
+  # (decisão do grupo em 08/11/2026; não existe listener 5671 nem CA para montar). O acesso é restrito por usuário/senha, ACL por
+  # serviço e NetworkPolicy (label no namespace + label de Pod). O usuário é o `gearflow_inventory`, no Secret.
+  # Para um broker com TLS (o da `main` do infra-broker até 05/11): RabbitMq__Port=5671, RabbitMq__Tls=true e
+  # RabbitMq__CaCertificatePath apontando para o ca.crt montado (o código ainda suporta).
   RabbitMq__Host: rabbitmq.messaging.svc.cluster.local
-  RabbitMq__Port: "5671"
+  RabbitMq__Port: "5672"
   RabbitMq__VirtualHost: gearflow
-  RabbitMq__Tls: "true"
-  RabbitMq__CaCertificatePath: /etc/gearflow/rabbitmq-ca/ca.crt
+  RabbitMq__Tls: "false"
 
   # Mailpit que já roda no namespace (gearflow-infra-k8s/k8s/gearflow/smtp).
   Smtp__Host: smtp-service

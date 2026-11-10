@@ -1,43 +1,115 @@
 name: gearflow-inventory-service.delivery
 
-# Deploy no EKS do gearflow-infra-k8s depois que o CI da main passa. Desligado por padrão: só roda com a variável
-# DEPLOY_ENABLED=true. Pré-requisitos (role OIDC, cluster, Secrets no namespace) em k8s/README.md.
-# A imagem vem do docker-publish.yml (tag sha-<commit>); aqui só se espera ela existir e se fixa o deploy no digest.
+# Deploy do Inventory no EKS do gearflow-infra-broker (cluster gearflow-fase4, AWS Academy) depois que o CI da main passa.
+# Desligado por padrão: só roda com a variável DEPLOY_ENABLED=true. O workflow_run só dispara a partir da branch padrão (main).
+#
+# O AWS Academy NÃO tem OIDC nem permite roles novas, e o endpoint do EKS só aceita IPs liberados. Por isso o acesso segue o
+# padrão do infra-broker (docs/cd.md e docs/infra-cd.md lá):
+#   - credenciais TEMPORÁRIAS da sessão Academy, como secrets da organização (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e
+#     AWS_SESSION_TOKEN, que expiram juntos) e variáveis AWS_REGION e EKS_CLUSTER_NAME. É preciso liberá-los a este repositório;
+#   - abertura de UM /32 (o IP do runner) no endpoint, com o scripts/cd/cluster_access.py do broker, fixado num commit já
+#     revisado e conferido por hash. Nenhuma regra existente é removida, e o fechamento roda sempre (always());
+#   - a imagem vem do docker-publish (tag sha-<commit>); aqui só se espera ela existir e se fixa o deploy no digest.
+# Pré-requisitos no cluster (checados no preflight, com mensagem clara): namespace com a label gearflow.io/messaging-access=true e
+# Secret gearflow-inventory-secret. O broker é AMQP 5672 sem TLS (infra-broker, decisão de 08/11), então não há CA para montar.
+# Só faz sentido depois que a `homolog` do infra-broker entrar na `main` dele e o CD dele rodar. Veja k8s/README.md.
+#
+# Atenção: o GitHub só serializa runs DESTE repositório. Se outro repositório abrir o endpoint ao mesmo tempo, o EKS recusa a
+# segunda atualização (a execução falha, sem efeito colateral) e, no pior caso, uma liberação é sobrescrita. Combine os deploys.
 
 on:
   workflow_run:
     workflows: [gearflow-inventory-service.ci]   # tem de ser igual ao `name:` do ci.yml
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: inventory-delivery
   cancel-in-progress: false
 
 jobs:
+  verify:
+    # Roda o deploy só se ligado, vindo da main e com o CI verde para ESTE commit (o disparo manual também confere).
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Exige o CI verde para o commit exato
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const {data} = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner, repo: context.repo.repo, workflow_id: 'ci.yml',
+              head_sha: process.env.DEPLOY_SHA, branch: 'main', status: 'success', per_page: 100
+            });
+            if (!data.workflow_runs.some(run => ['push', 'workflow_dispatch'].includes(run.event))) {
+              core.setFailed('Rode o CI com sucesso para este commit da main antes do deploy.');
+            }
+
   deploy:
     name: Deploy no Kubernetes
-    if: >-
-      vars.DEPLOY_ENABLED == 'true' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+    needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: inventory-homologation
-    permissions:
-      contents: read
-      id-token: write   # OIDC com a AWS: sem chave de longa duração no GitHub
     env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      AWS_PAGER: ''
+      NAMESPACE: gearflow                       # o mesmo de k8s/base/kustomization.yaml
       IMAGE_REPO: ghcr.io/gearflow-fiap/gearflow-inventory-service
-      TAG: sha-${{ github.event.workflow_run.head_sha }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # k8s/base por padrão. O Kong não faz parte do enunciado nem do cluster novo; para publicar a rota, KUSTOMIZE_DIR=k8s/overlays/kong.
+      KUSTOMIZE_DIR: ${{ vars.KUSTOMIZE_DIR || 'k8s/base' }}
     steps:
-      - uses: actions/checkout@v7
+      - name: Isola os arquivos temporários do runner
+        shell: bash
+        run: |
+          echo "KUBECONFIG=$RUNNER_TEMP/gearflow-kubeconfig" >> "$GITHUB_ENV"
+          echo "ACCESS_LEASE=$RUNNER_TEMP/endpoint-access.json" >> "$GITHUB_ENV"
+          echo "TAG=sha-$DEPLOY_SHA" >> "$GITHUB_ENV"
+
+      - name: Checkout do commit exato que passou no CI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
+      # Só o script de acesso, de um commit da main do infra-broker (revisado: abre/fecha um /32 e recusa /0 e lista vazia).
+      # Para atualizar, troque o SHA e o hash abaixo depois de reler o script.
+      - name: Busca o script de acesso ao cluster (infra-broker, commit fixado)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: Gearflow-Fiap/gearflow-infra-broker
+          ref: 5a7e1d1705e69223ef47a4629c26347ff8be2db1
+          path: .infra-broker
+          sparse-checkout: scripts/cd/cluster_access.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Confere que é o script revisado
+        shell: bash
+        run: |
+          test "$(git -C .infra-broker hash-object scripts/cd/cluster_access.py)" = 1f310e196c88be4b03c9f69f8166c34b89073e8d \
+            || { echo "::error::O cluster_access.py não é o revisado. Releia-o e atualize o SHA e o hash neste workflow."; exit 1; }
+
+      - name: Valida as variáveis da organização
+        shell: bash
+        run: |
+          test "$AWS_REGION" = us-east-1 || { echo "::error::AWS_REGION deve ser us-east-1 (variável da organização liberada a este repositório?)"; exit 1; }
+          test "$EKS_CLUSTER_NAME" = gearflow-fase4 || { echo "::error::EKS_CLUSTER_NAME deve ser gearflow-fase4 (variável da organização liberada a este repositório?)"; exit 1; }
 
       # O docker-publish.yml roda em paralelo ao CI. A imagem é pública, então a consulta não precisa de login.
       - name: Aguarda a imagem no GHCR e resolve o digest
@@ -56,37 +128,69 @@ jobs:
           echo "::error::A imagem $IMAGE_REPO:$TAG não apareceu no GHCR em 10 minutos."
           exit 1
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Autentica com as credenciais temporárias do Academy
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4 (commit da tag; o SHA do objeto da tag não resolve)
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: '531827661311'   # conta do laboratório, a mesma do infra-broker; se mudar, revise aqui
+          unset-current-credentials: true
+          mask-aws-account-id: true
 
-      - name: Seleciona o cluster
-        env:
-          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+      - name: Instala o kubectl compatível com o cluster
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4 (commit da tag)
+        with:
+          version: v1.35.9
+
+      - name: Prepara o arquivo de recuperação do acesso
+        run: python .infra-broker/scripts/cd/cluster_access.py prepare --cluster "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --lease "$ACCESS_LEASE"
+
+      - name: Salva o arquivo de recuperação antes de alterar o endpoint
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: endpoint-access-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.ACCESS_LEASE }}
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Libera temporariamente o IP deste runner
+        run: python .infra-broker/scripts/cd/cluster_access.py open --cluster "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --lease "$ACCESS_LEASE"
+
+      - name: Configura o contexto Kubernetes isolado
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --kubeconfig "$KUBECONFIG" --alias gearflow-inventory-cd
+
+      - name: Preflight no cluster (namespace, label e Secret)
+        run: |
+          set -euo pipefail
+          kubectl get namespace "$NAMESPACE" >/dev/null || {
+            echo "::error::O namespace $NAMESPACE não existe no cluster. Peça a quem administra o cluster (k8s/README.md)."; exit 1; }
+          label=$(kubectl get namespace "$NAMESPACE" -o jsonpath='{.metadata.labels.gearflow\.io/messaging-access}')
+          test "$label" = true || {
+            echo "::error::O namespace $NAMESPACE não tem a label gearflow.io/messaging-access=true: a NetworkPolicy do broker bloquearia a 5672."; exit 1; }
+          kubectl get secret gearflow-inventory-secret -n "$NAMESPACE" >/dev/null || {
+            echo "::error::O Secret gearflow-inventory-secret não existe no namespace $NAMESPACE (k8s/README.md)."; exit 1; }
+          # O broker sem TLS (infra-broker, 08/11) só tem a porta 5672; se ele ainda for o antigo (5671 + TLS), o Inventory não conecta.
+          # A porta vem do ConfigMap versionado, então só conferimos que o Service do broker expõe a mesma.
+          kubectl get service rabbitmq -n messaging -o jsonpath='{.spec.ports[*].port}' | grep -qw 5672 || {
+            echo "::error::O Service rabbitmq (namespace messaging) não expõe a 5672. O CD do infra-broker com a versão sem TLS (homolog -> main) já rodou?"; exit 1; }
 
       - name: Renderiza, valida e aplica
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
         run: |
           set -euo pipefail
-          kubectl kustomize k8s/overlays/kong \
+          kubectl kustomize "$KUSTOMIZE_DIR" \
             | sed "s#image: gearflow-inventory-service:unpublished#image: ${IMAGE}#" > "$RUNNER_TEMP/inventory.yaml"
           grep -q "image: ${IMAGE}" "$RUNNER_TEMP/inventory.yaml"
-          kubectl get secret gearflow-inventory-secret -n gearflow >/dev/null || {
-            echo "::error::O Secret gearflow-inventory-secret não existe no namespace gearflow (veja k8s/README.md)."; exit 1; }
-          # A CA pública do broker é montada no Pod; sem o ConfigMap o Pod fica em ContainerCreating sem explicação.
-          kubectl get configmap rabbitmq-ca -n gearflow >/dev/null || {
-            echo "::error::O ConfigMap rabbitmq-ca (ca.crt do broker) não existe no namespace gearflow (veja k8s/README.md)."; exit 1; }
           kubectl apply --dry-run=server -f "$RUNNER_TEMP/inventory.yaml"
           kubectl apply -f "$RUNNER_TEMP/inventory.yaml"
-          kubectl rollout status deployment/gearflow-inventory -n gearflow --timeout=300s
+          kubectl rollout status deployment/gearflow-inventory -n "$NAMESPACE" --timeout=300s
 
       - name: Smoke test em /health/ready (Service interno)
         run: |
-          kubectl port-forward -n gearflow service/gearflow-inventory 18080:8080 >"$RUNNER_TEMP/port-forward.log" 2>&1 &
+          kubectl port-forward -n "$NAMESPACE" service/gearflow-inventory 18080:8080 >"$RUNNER_TEMP/port-forward.log" 2>&1 &
           forward_pid=$!
           trap 'kill "$forward_pid"' EXIT
           for attempt in $(seq 1 20); do
@@ -99,5 +203,23 @@ jobs:
       - name: Diagnóstico (só em falha)
         if: failure()
         run: |
-          kubectl get pods -n gearflow -l app.kubernetes.io/name=gearflow-inventory -o wide || true
-          kubectl logs -n gearflow -l app.kubernetes.io/name=gearflow-inventory --tail=60 --all-containers || true
+          kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=gearflow-inventory -o wide || true
+          kubectl describe pods -n "$NAMESPACE" -l app.kubernetes.io/name=gearflow-inventory | tail -n 40 || true
+          kubectl logs -n "$NAMESPACE" -l app.kubernetes.io/name=gearflow-inventory --tail=60 --all-containers || true
+
+      - name: Remove só a liberação temporária deste runner
+        if: always()
+        run: |
+          if [ -f "$ACCESS_LEASE" ]; then
+            python .infra-broker/scripts/cd/cluster_access.py close --cluster "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --lease "$ACCESS_LEASE"
+          fi
+
+      - name: Atualiza o arquivo de recuperação depois da limpeza
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: endpoint-access-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.ACCESS_LEASE }}
+          retention-days: 1
+          if-no-files-found: ignore
+          overwrite: true
