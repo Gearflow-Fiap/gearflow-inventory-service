@@ -58,7 +58,7 @@ if [ -z "$jwt" ]; then
   jwt=$(secret_field "$NAMESPACE" "$APP_SECRET" Jwt__Secret)
   [ -z "$jwt" ] || log "    JWT_SECRET não informado: mantendo o Jwt__Secret do Secret $APP_SECRET que já existe."
 fi
-[ -n "$jwt" ] || fail "Informe o secret JWT_SECRET do repositório (o segredo HMAC do grupo, >= 32 caracteres): o Secret $APP_SECRET ainda não existe."
+[ -n "$jwt" ] || fail "Informe o secret JWT_SECRET (ou JWT_SIGNING_KEY), do repositório ou da organização liberado a este repositório (o segredo HMAC do grupo, >= 32 caracteres): o Secret $APP_SECRET ainda não existe."
 mask "$jwt"
 [ "${#jwt}" -ge 32 ] || fail "O JWT precisa ter pelo menos 32 caracteres (HMAC-SHA256)."
 case "$jwt" in
