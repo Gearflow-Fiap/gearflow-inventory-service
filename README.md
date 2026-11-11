@@ -23,15 +23,15 @@ Responsável por:
 | Persistência (EF Core + Npgsql, migrations, concorrência `xmin`, seed com IDs fixos) | ✅ Pronto e **testado contra um PostgreSQL real** (Testcontainers) |
 | API REST (13 operações, JWT, ProblemDetails, OpenAPI/Scalar, health, métricas) | ✅ Pronto e testado de ponta a ponta |
 | Mensageria (MassTransit 8.5 + RabbitMQ, Outbox/Inbox no EF Core, consumers, retry, DLQ) | ✅ Pronto e **testado com RabbitMQ real** (ver [seção 7](#7-mensageria-rabbitmq--masstransit)) |
-| E-mails de estoque (baixo e insuficiente), por SMTP | ✅ Pronto e testado contra um Mailpit real |
+| E-mails de estoque (baixo e insuficiente), por SMTP | ✅ Pronto e testado contra um Mailpit real. No cluster o ConfigMap aponta para o Service `mailpit` do namespace, que o **Billing** sobe (o Inventory não cria um): sem ele o e-mail falha e vai para a fila `_error`, e a Saga não é afetada ([k8s/README.md](k8s/README.md#ver-os-e-mails-de-estoque-no-cluster)). **Não visto num cluster** |
 | Testes unitários, de arquitetura e de integração | ✅ 240 + 46 |
 | BDD (Reqnroll) | ⏳ Fase 7 |
 | Imagem no GHCR (pública), CodeQL, varredura de dependências, Dependabot, gate de cobertura (unit + integração) | ✅ Rodando verde no GitHub desde 2026-11-04 (ver [seção 12](#12-cicd)) |
-| Manifests K8s (base, rota Kong, Postgres de exemplo) | ✅ Validados com kubeconform e em smoke test no Docker; **ainda não aplicados em cluster** ([k8s/README.md](k8s/README.md)) |
-| SonarCloud e deploy automático | 🟡 Workflows escritos e desligados por variável (`SONAR_PROJECT_KEY`, `DEPLOY_ENABLED`). O deploy segue o padrão do infra-broker para o AWS Academy; depende de secrets AWS da organização liberados ao repositório, do namespace preparado e de estar na `main`. **Nunca rodou** |
+| Manifests K8s (base, rota Kong, Postgres de exemplo em 2 perfis) e `scripts/bootstrap-cluster.sh` | ✅ Base/Kong validados com kubeconform e em smoke test no Docker; perfis do Postgres renderizados (kubeconform só no CI) e o script testado contra um `kubectl` falso. **Nada aplicado em cluster** ([k8s/README.md](k8s/README.md)) |
+| SonarCloud e deploy automático | 🟡 Workflows escritos e desligados por variável (`SONAR_PROJECT_KEY`, `DEPLOY_ENABLED`). O deploy segue o padrão do AWS Academy (EKS `gearflow`); depende de secrets AWS da sessão e `JWT_SECRET` no repositório, do broker já deployado e de estar na `main`; o namespace, o Postgres e o Secret o próprio deploy prepara. **Nunca rodou** |
 | Tracing da mensagem do RabbitMQ (fonte e medidor `MassTransit` no OpenTelemetry) e export OTLP para o New Relic no K8s | ✅ Ligado no código (testado) e nos manifestos; **ainda não visto no New Relic**, falta rodar no cluster ([seção 9](#9-configuração)) |
 | Collection Postman (13 operações + health + erros esperados) | ✅ [`docs/postman/`](docs/postman/) (conferida contra as rotas do código; **não executada** contra uma API no ar) |
-| Broker compartilhado (infra-broker): AMQP 5672 **sem TLS** (decisão do grupo, 08/11), ConfigMap e label de Pod certos. O código ainda suporta AMQPS (`RabbitMq__Tls` + CA privada, nome de host sempre validado) | ✅ Testado em 2026-11-09 com o Inventory real contra a topologia e as ACLs reais do broker: Saga OS → Inventory → OS 6/6, filas de erro e ACLs negativas ([k8s/README.md](k8s/README.md#permissões-no-broker-resolvido-e-validado-em-2026-11-09)). **Só vale depois que a `homolog` do infra-broker entrar na `main` e o CD rodar**; a NetworkPolicy não foi testada |
+| Broker compartilhado (infra-broker): AMQP 5672 **sem TLS** (decisão do grupo, 08/11), ConfigMap e label de Pod certos. O código ainda suporta AMQPS (`RabbitMq__Tls` + CA privada, nome de host sempre validado) | ✅ Testado em 2026-11-09 com o Inventory real contra a topologia e as ACLs reais do broker: Saga OS → Inventory → OS 6/6, filas de erro e ACLs negativas ([k8s/README.md](k8s/README.md#permissões-no-broker-resolvido-e-validado-em-2026-11-09)). A versão sem TLS do broker já está na `main` dele (PR #4, 10/11) e o CD dele passou a publicar no EKS `gearflow` (PR #5); **só vale depois que esse CD rodar no cluster**. A NetworkPolicy não foi testada |
 | **New Relic como na Fase 3**: agente APM, OTLP, métricas de negócio (Meter `GearFlow.Business`), alertas e dashboard em Terraform | ✅ Código e testes (12 novos) e `terraform validate` ok ([`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)). **`terraform plan/apply`, `nri-bundle` no cluster e dados no New Relic ainda não verificados**: dependem das credenciais do grupo e do cluster |
 | Preços em lote para o Operation Service (`A8` do plano) | ⏳ Depende da decisão de onde o Operation lê os preços |
 
@@ -289,11 +289,11 @@ Reservar, liberar e consumir **não** são REST: são comandos da Saga.
 | `Jwt__Secret` | *(secret, ≥ 32 caracteres)* | Mesma chave HMAC do monólito e da Lambda de CPF |
 | `Jwt__Issuer` / `Jwt__Audience` | `GearFlow.Api` / `GearFlow.Client` | Os mesmos do cluster |
 | `RabbitMq__Host` / `__Port` / `__VirtualHost` | `rabbitmq.messaging.svc.cluster.local` / `5672` / `gearflow` | Broker (padrão: `localhost:5672`, vhost `/`). No K8s já vêm no ConfigMap, apontando para o broker do infra-broker |
-| `RabbitMq__Tls` | `false` | AMQPS (padrão `false`). O broker compartilhado atual (`homolog` do infra-broker) é **sem TLS**; use `true` só com um broker AMQPS (5671). Mesma chave do Billing |
+| `RabbitMq__Tls` | `false` | AMQPS (padrão `false`). O broker compartilhado atual (`main` do infra-broker) é **sem TLS**; use `true` só com um broker AMQPS (5671). Mesma chave do Billing |
 | `RabbitMq__CaCertificatePath` | *(vazio)* | Só com `Tls=true`: PEM da CA privada do broker. O certificado e o **nome do host** são sempre validados; arquivo ausente derruba o startup |
 | `RabbitMq__Username` / `__Password` | `gearflow_inventory` / *(secret)* | Credenciais do broker (usuário próprio do serviço) |
 | `RabbitMq__RetryIntervalsMilliseconds__0..n` | `1000`, `5000`, `15000` | Intervalos do retry de falha transitória. **Ao configurar, informe a lista inteira**: ela substitui o padrão |
-| `Smtp__Host` / `__Port` / `__From` | `mailpit` / `1025` / `no-reply@gearflow.com` | SMTP dos avisos de estoque |
+| `Smtp__Host` / `__Port` / `__From` | `mailpit` / `1025` / `no-reply@gearflow.com` | SMTP dos avisos de estoque (sem TLS nem autenticação). Local: o Mailpit do `docker-compose`. No K8s: o Service `mailpit` do namespace `gearflow`, que o perfil Academy do Billing sobe |
 | `Stock__AlertEmail` | `estoque@gearflow.com` | Quem recebe os avisos de estoque baixo e insuficiente |
 | `Seed__EnableDevData` | `true` | Semeia o catálogo de demonstração fora do ambiente Development |
 | `Otlp__Endpoint` | `https://otlp.nr-data.net:4317` | Destino OTLP dos traces e métricas (New Relic). No K8s já vem no ConfigMap; o header `api-key` sai de `OTEL_EXPORTER_OTLP_HEADERS`, montado no Deployment a partir da licença do Secret `newrelic-apm-secret` (como no monólito da Fase 3) |
@@ -423,7 +423,7 @@ O `delivery.yml` dispara por `workflow_run` apontando para o nome do CI: se reno
 - **coverage**: junta os relatórios de unit e integration com o ReportGenerator, aplica o **gate de 80% de linhas** sobre o
   total, comenta o resultado no PR e publica o relatório consolidado (`coverage-merged`), que serve de evidência do desafio.
   É o número do serviço inteiro, o que o PDF pede ("cobertura mínima de 80% por serviço").
-- **manifests**: `kubectl kustomize` + kubeconform (`-strict`) em `k8s/base`, `k8s/overlays/kong` e `k8s/local-postgres`.
+- **manifests**: `kubectl kustomize` + kubeconform (`-strict`) em `k8s/base`, `k8s/overlays/kong`, `k8s/local-postgres` e `k8s/local-postgres-auto`.
 - **sonar**: análise no SonarCloud com `sonar.qualitygate.wait=true`. Fica **desligado** até existir a variável `SONAR_PROJECT_KEY`
   (mais `SONAR_ORG` e o secret `SONAR_TOKEN`).
 
@@ -432,9 +432,10 @@ Outros workflows:
 - `docker-publish.yml`: build da imagem (`src/GearFlow.Inventory.Api/Dockerfile`) em PR e push no
   `ghcr.io/<org>/gearflow-inventory-service` em `main`, `develop` e tags `v*`.
 - `dependabot.yml`: NuGet e GitHub Actions, semanal. O MassTransit não sobe de major (a 9.x é comercial).
-- `delivery.yml`: deploy no EKS depois do CI da `main`, no padrão do infra-broker (AWS Academy: sem OIDC; credenciais temporárias da sessão e abertura
-  temporária de um /32 do runner, fechada sempre). Espera a imagem `sha-<commit>`, fixa no digest, confere namespace/label/Secret/ConfigMap, aplica
-  com `--dry-run=server` antes, espera o rollout e testa `/health/ready`. Fica **desligado** até existir a variável `DEPLOY_ENABLED=true` e só dispara a partir da `main`.
+- `delivery.yml`: deploy no EKS `gearflow` (o do broker e do Billing) depois do CI da `main`, no padrão do AWS Academy (sem OIDC; credenciais
+  temporárias da sessão, conta conferida por `AWS_ACCOUNT_ID`, sem mexer no endpoint). Espera a imagem `sha-<commit>`, fixa no digest, confere o
+  acesso e o broker, roda o `scripts/bootstrap-cluster.sh` (namespace + label, PostgreSQL próprio com StorageClass própria, Secret da aplicação),
+  aplica com `--dry-run=server` antes, espera o rollout e testa `/health/ready`. Fica **desligado** até existir a variável `DEPLOY_ENABLED=true` e só dispara a partir da `main`.
   Pré-requisitos e limites em [k8s/README.md](k8s/README.md#deploy-automático-githubworkflowsdeliveryyml-ação-gearflow-inventory-servicedelivery).
 
 `gearflow-inventory-service.ci` (com `unit`, `integration`, `security` e `coverage`), `gearflow-inventory-service.codeql` e
@@ -442,8 +443,8 @@ Outros workflows:
 `CI`, `CodeQL` e `Docker Publish`; os nomes novos aparecem a partir do próximo push). `manifests`, `sonar` e `delivery.yml` foram escritos depois e ainda não rodaram lá; os manifestos foram
 validados localmente (kubeconform e smoke test no Docker, ver [k8s/README.md](k8s/README.md)).
 
-Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets e variáveis AWS da organização liberados a este repositório, o namespace
-preparado no cluster e a ACL do RabbitMQ.
+Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e `JWT_SECRET`, as variáveis `AWS_ACCOUNT_ID`,
+`EKS_CLUSTER_NAME=gearflow` e `DEPLOY_ENABLED=true` neste repositório, e o broker (GearFlow CD do infra-broker) já rodando no cluster.
 
 **Branch protection da `main`** (configuração do GitHub, não dá para versionar; exige admin do repositório). Em *Settings → Branches*,
 ou, com o `gh` autenticado como admin (**não executado**: conferir antes de aplicar). Os nomes dos checks são os dos *jobs*; a

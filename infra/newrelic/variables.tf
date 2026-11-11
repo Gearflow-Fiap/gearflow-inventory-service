@@ -23,7 +23,7 @@ variable "service_name" {
 variable "cluster_name" {
   description = "Nome do cluster como o nri-bundle o registra (global.cluster do Helm). Usado nos widgets e alertas de CPU/memória"
   type        = string
-  default     = "gearflow-fase4"
+  default     = "gearflow"
 }
 
 variable "kubernetes_namespace" {
