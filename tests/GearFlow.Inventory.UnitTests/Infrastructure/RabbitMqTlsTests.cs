@@ -41,7 +41,10 @@ public sealed class RabbitMqTlsTests : IDisposable
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
         // A CA já existe há 60 dias: assim dá para emitir um certificado de servidor que expirou sem começar antes dela.
-        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(30));
+        // E ela dura 365 dias, bem mais que os 30 do servidor: o X.509 grava datas em SEGUNDOS, e a geração da chave RSA entre a
+        // criação da CA e a do servidor leva tempo. Com os dois em "agora + 30 dias", cruzar a virada de um segundo deixava o servidor
+        // expirando 1 s DEPOIS da CA, e o .NET se recusava a emitir (ArgumentException em CertificateRequest.Create; falha intermitente no CI).
+        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(365));
     }
 
     private static X509Certificate2 CreateServerCertificate(
