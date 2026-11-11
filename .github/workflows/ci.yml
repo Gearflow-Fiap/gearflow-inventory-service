@@ -34,7 +34,7 @@ jobs:
     name: Build + testes unitários + cobertura
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -83,7 +83,7 @@ jobs:
     name: Integração (Postgres + RabbitMQ + Mailpit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -113,7 +113,7 @@ jobs:
     name: Security (pacotes vulneráveis e obsoletos)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -160,7 +160,7 @@ jobs:
       contents: read
       pull-requests: write    # comentário fixo de cobertura no PR
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -219,7 +219,7 @@ jobs:
     name: Manifestos Kubernetes (kubeconform)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # Valida o que o deploy vai aplicar: base, rota Kong e os dois perfis do Postgres (cluster convencional e EKS Auto Mode;
       # o delivery.yml escolhe um deles lendo computeConfig.enabled do cluster).
@@ -241,7 +241,7 @@ jobs:
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0   # o Sonar usa o histórico para separar código novo do antigo
 
