@@ -6,6 +6,6 @@ newrelic_alert_email = "alertas@example.com"
 
 # Opcionais (valores padrão abaixo):
 # service_name         = "GearFlow.Inventory.Api"
-# cluster_name         = "gearflow-fase4"   # global.cluster do Helm do nri-bundle
+# cluster_name         = "gearflow"   # global.cluster do Helm do nri-bundle
 # kubernetes_namespace = "gearflow"
 # healthcheck_url      = "http://<host público>/health/ready"

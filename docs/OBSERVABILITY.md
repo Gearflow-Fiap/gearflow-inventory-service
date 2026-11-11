@@ -92,14 +92,15 @@ da conta e da User API Key do grupo.
 ## Pré-requisito do cluster: nri-bundle
 
 Os alertas e widgets de CPU e memória usam `K8sContainerSample`, que vem do **nri-bundle** (Helm), instalado **uma vez por cluster** por quem o
-administra, como no `monitoring.tf` da Fase 3. Pelos docs do `gearflow-infra-broker` (05/11), o cluster novo (`gearflow-fase4`) só tem o RabbitMQ e
-o monitoramento segue pendente: **o nri-bundle ainda não deve estar instalado** (não verifiquei no cluster).
+administra, como no `monitoring.tf` da Fase 3. O Inventory roda no EKS **`gearflow`** (o mesmo do broker e do Billing; o broker saiu do
+`gearflow-fase4` em 10/11). O README do `gearflow-infra-broker` lista o monitoramento como pendente e o perfil Academy do Billing desliga a
+telemetria (`Telemetry__Enabled=false`): **não há indício de que o nri-bundle esteja instalado** (não verifiquei no cluster).
 Referência (valores da Fase 3: `gearflow-infra-k8s/k8s/monitoring/helm-values.yaml`):
 
 ```bash
 helm repo add newrelic https://helm-charts.newrelic.com && helm repo update
 helm install nri-bundle newrelic/nri-bundle -n newrelic --create-namespace \
-  --set global.licenseKey="$NEW_RELIC_LICENSE_KEY" --set global.cluster=gearflow-fase4 \
+  --set global.licenseKey="$NEW_RELIC_LICENSE_KEY" --set global.cluster=gearflow \
   --set global.lowDataMode=true --set newrelic-logging.enabled=false \
   -f helm-values.yaml
 ```
@@ -109,7 +110,9 @@ O `global.cluster` precisa ser igual à variável `cluster_name` de `infra/newre
 ## O que ainda depende de fora do repositório
 
 - Credenciais do New Relic do grupo (ID da conta e User API Key) para o `terraform apply`.
-- O `nri-bundle` no cluster `gearflow-fase4`.
-- Um Secret `newrelic-apm-secret` no namespace do Inventory (o do cluster da Fase 3 não existe no cluster novo).
+- O `nri-bundle` no cluster `gearflow`.
+- Um Secret `newrelic-apm-secret` (chave `NEW_RELIC_LICENSE_KEY`) no namespace `gearflow`. **O bootstrap do `delivery.yml` não o cria** (a licença é
+  do grupo): `kubectl -n gearflow create secret generic newrelic-apm-secret --from-literal=NEW_RELIC_LICENSE_KEY=<licença>`. Sem ele a API sobe
+  normalmente, mas o agente e o export OTLP não reportam (o Deployment o declara como opcional).
 - Uma URL pública do `/health/ready`, se quiserem o monitor sintético (o Ingress do Kong só publica `/api/inventory`).
 - Os outros serviços exportarem para o mesmo New Relic para o dashboard compartilhado enxergar a Saga inteira.
