@@ -433,7 +433,7 @@ Outros workflows:
   `ghcr.io/<org>/gearflow-inventory-service` em `main`, `develop` e tags `v*`.
 - `dependabot.yml`: NuGet e GitHub Actions, semanal. O MassTransit não sobe de major (a 9.x é comercial).
 - `delivery.yml`: deploy no EKS `gearflow` (o do broker e do Billing) depois do CI da `main`, no padrão do AWS Academy (sem OIDC; credenciais
-  temporárias da sessão, conta conferida por `AWS_ACCOUNT_ID`, sem mexer no endpoint). Espera a imagem `sha-<commit>`, fixa no digest, confere o
+  temporárias da sessão, conta conferida por `AWS_ACCOUNT_ID` se informado, sem mexer no endpoint). Espera a imagem `sha-<commit>`, fixa no digest, confere o
   acesso e o broker, roda o `scripts/bootstrap-cluster.sh` (namespace + label, PostgreSQL próprio com StorageClass própria, Secret da aplicação),
   aplica com `--dry-run=server` antes, espera o rollout e testa `/health/ready`. Fica **desligado** até existir a variável `DEPLOY_ENABLED=true` e só dispara a partir da `main`.
   Pré-requisitos e limites em [k8s/README.md](k8s/README.md#deploy-automático-githubworkflowsdeliveryyml-ação-gearflow-inventory-servicedelivery).
@@ -443,8 +443,8 @@ Outros workflows:
 `CI`, `CodeQL` e `Docker Publish`; os nomes novos aparecem a partir do próximo push). `manifests`, `sonar` e `delivery.yml` foram escritos depois e ainda não rodaram lá; os manifestos foram
 validados localmente (kubeconform e smoke test no Docker, ver [k8s/README.md](k8s/README.md)).
 
-Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e `JWT_SECRET`, as variáveis `AWS_ACCOUNT_ID`,
-`EKS_CLUSTER_NAME=gearflow` e `DEPLOY_ENABLED=true` neste repositório, e o broker (GearFlow CD do infra-broker) já rodando no cluster.
+Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e `JWT_SECRET`, as variáveis
+`EKS_CLUSTER_NAME=gearflow` e `DEPLOY_ENABLED=true` (e, opcionalmente, `AWS_ACCOUNT_ID`) neste repositório, e o broker (GearFlow CD do infra-broker) já rodando no cluster.
 
 **Branch protection da `main`** (configuração do GitHub, não dá para versionar; exige admin do repositório). Em *Settings → Branches*,
 ou, com o `gh` autenticado como admin (**não executado**: conferir antes de aplicar). Os nomes dos checks são os dos *jobs*; a

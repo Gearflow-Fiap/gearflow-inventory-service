@@ -5,8 +5,9 @@ name: gearflow-inventory-service.delivery
 #
 # O AWS Academy NÃO tem OIDC nem permite roles novas. Por isso o acesso segue o padrão do infra-broker e do Billing:
 #   - credenciais TEMPORÁRIAS da sessão Academy como secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e AWS_SESSION_TOKEN, que
-#     expiram juntos: renove os três antes de cada teste), mais as variáveis AWS_REGION e EKS_CLUSTER_NAME e o AWS_ACCOUNT_ID (este
-#     pode ser variável OU secret: o ID da conta não é sensível, e a variável aparece em claro nos logs, o que ajuda a depurar).
+#     expiram juntos: renove os três antes de cada teste), mais as variáveis AWS_REGION e EKS_CLUSTER_NAME. O AWS_ACCOUNT_ID é OPCIONAL
+#     (variável OU secret): informado, o login recusa credenciais de outra conta (o nome gearflow não é único entre contas Academy);
+#     vazio, não há essa conferência.
 #     Podem ser da organização, desde que liberados a este repositório; variável DO REPOSITÓRIO vence a da organização;
 #   - o endpoint do EKS tem de ser alcançável pelo runner: este workflow NÃO altera CIDRs (o CD do broker e o do Billing também não).
 #     Se não for, o passo "Confere o acesso ao cluster" falha dizendo isso e mostra os CIDRs do endpoint;
@@ -88,12 +89,18 @@ jobs:
           ref: ${{ env.DEPLOY_SHA }}
           persist-credentials: false
 
-      - name: Valida as variáveis (região, cluster e conta)
+      - name: Valida as variáveis (região e cluster; conta, se informada)
         shell: bash
         run: |
           test "$AWS_REGION" = us-east-1 || { echo "::error::AWS_REGION deve ser us-east-1 (variável liberada a este repositório?)"; exit 1; }
           test "$EKS_CLUSTER_NAME" = gearflow || { echo "::error::EKS_CLUSTER_NAME deve ser gearflow (o cluster do broker e do Billing). Uma variável da organização com o valor antigo gearflow-fase4 é sobrescrita por uma variável do repositório."; exit 1; }
-          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo "::error::AWS_ACCOUNT_ID deve ter 12 dígitos: a conta da sessão Academy dona do cluster gearflow (variável ou secret, do repositório ou da organização liberado a este repositório). Não reaproveite o ID do laboratório antigo."; exit 1; }
+          # AWS_ACCOUNT_ID é OPCIONAL (o CD do broker e o do Billing também não o exigem). Informado, o login AWS recusa credenciais de outra
+          # conta; vazio, não há essa conferência. Preenchido, tem de ter 12 dígitos.
+          if [ -z "$AWS_ACCOUNT_ID" ]; then
+            echo "::notice::AWS_ACCOUNT_ID não definido: o login não confere a conta das credenciais. Defina-o (variável ou secret) se quiser impedir deploy com uma sessão de outra conta que também tenha um cluster chamado $EKS_CLUSTER_NAME."
+          else
+            [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo "::error::AWS_ACCOUNT_ID, quando definido, deve ter 12 dígitos: a conta da sessão Academy dona do cluster gearflow. Não reaproveite o ID do laboratório antigo."; exit 1; }
+          fi
 
       # O docker-publish.yml roda em paralelo ao CI. A imagem é pública, então a consulta não precisa de login.
       - name: Aguarda a imagem no GHCR e resolve o digest
@@ -121,7 +128,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}   # a conta do cluster gearflow; a sessão de outra conta é recusada
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}   # opcional: vazio = sem restrição (a ação ignora o valor vazio); informado, a sessão de outra conta é recusada
           unset-current-credentials: true
           mask-aws-account-id: true
 
