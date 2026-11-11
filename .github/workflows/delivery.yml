@@ -5,7 +5,8 @@ name: gearflow-inventory-service.delivery
 #
 # O AWS Academy NÃO tem OIDC nem permite roles novas. Por isso o acesso segue o padrão do infra-broker e do Billing:
 #   - credenciais TEMPORÁRIAS da sessão Academy como secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e AWS_SESSION_TOKEN, que
-#     expiram juntos: renove os três antes de cada teste), mais as variáveis AWS_REGION, EKS_CLUSTER_NAME e AWS_ACCOUNT_ID.
+#     expiram juntos: renove os três antes de cada teste), mais as variáveis AWS_REGION e EKS_CLUSTER_NAME e o AWS_ACCOUNT_ID (este
+#     pode ser variável OU secret: o ID da conta não é sensível, e a variável aparece em claro nos logs, o que ajuda a depurar).
 #     Podem ser da organização, desde que liberados a este repositório; variável DO REPOSITÓRIO vence a da organização;
 #   - o endpoint do EKS tem de ser alcançável pelo runner: este workflow NÃO altera CIDRs (o CD do broker e o do Billing também não).
 #     Se não for, o passo "Confere o acesso ao cluster" falha dizendo isso e mostra os CIDRs do endpoint;
@@ -66,7 +67,7 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}   # variável ou secret (a variável vence), do repositório ou da organização
       AWS_PAGER: ''
       NAMESPACE: gearflow                       # o mesmo de k8s/base/kustomization.yaml
       BROKER_NAMESPACE: messaging               # onde o infra-broker instala o RabbitMQ e os Secrets rabbitmq-<serviço>-credentials
@@ -92,7 +93,7 @@ jobs:
         run: |
           test "$AWS_REGION" = us-east-1 || { echo "::error::AWS_REGION deve ser us-east-1 (variável liberada a este repositório?)"; exit 1; }
           test "$EKS_CLUSTER_NAME" = gearflow || { echo "::error::EKS_CLUSTER_NAME deve ser gearflow (o cluster do broker e do Billing). Uma variável da organização com o valor antigo gearflow-fase4 é sobrescrita por uma variável do repositório."; exit 1; }
-          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo "::error::AWS_ACCOUNT_ID deve ter 12 dígitos: a conta da sessão Academy dona do cluster gearflow (variável do repositório). Não reaproveite o ID do laboratório antigo."; exit 1; }
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo "::error::AWS_ACCOUNT_ID deve ter 12 dígitos: a conta da sessão Academy dona do cluster gearflow (variável ou secret, do repositório ou da organização liberado a este repositório). Não reaproveite o ID do laboratório antigo."; exit 1; }
 
       # O docker-publish.yml roda em paralelo ao CI. A imagem é pública, então a consulta não precisa de login.
       - name: Aguarda a imagem no GHCR e resolve o digest
@@ -112,13 +113,15 @@ jobs:
           exit 1
 
       - name: Autentica com as credenciais temporárias do Academy
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4 (commit da tag; o SHA do objeto da tag não resolve)
+        # v6.3.0, o mesmo commit do CD do infra-broker (que já rodou verde na organização). A v4 que estava aqui NÃO tem o input
+        # allowed-account-ids: o GitHub o ignora com um aviso, e a conferência de conta nunca valia.
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}   # a conta do cluster gearflow; a sessão de outra conta é recusada
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}   # a conta do cluster gearflow; a sessão de outra conta é recusada
           unset-current-credentials: true
           mask-aws-account-id: true
 

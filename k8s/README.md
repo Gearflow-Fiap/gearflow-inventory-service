@@ -104,7 +104,7 @@ workflow abria um /32 com o `cluster_access.py` do broker; o script recusa endpo
 |---|---|---|
 | Secrets (organização, **liberados a este repositório**, ou do repositório) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Da mesma sessão Academy e da conta do cluster `gearflow`; expiram juntos, renove os três antes de cada teste. |
 | Secret do repositório | `JWT_SECRET` | O segredo HMAC do grupo (>= 32 caracteres). Sem ele o bootstrap só funciona se `gearflow-inventory-secret` já existir no cluster. |
-| Variáveis | `AWS_REGION` (`us-east-1`), `EKS_CLUSTER_NAME` (`gearflow`), `AWS_ACCOUNT_ID` (12 dígitos, a conta do `gearflow`) | O workflow falha cedo se estiverem erradas. Variável **do repositório** vence a da organização (que pode ainda dizer `gearflow-fase4`). |
+| Variáveis | `AWS_REGION` (`us-east-1`), `EKS_CLUSTER_NAME` (`gearflow`), `AWS_ACCOUNT_ID` (12 dígitos, a conta do `gearflow`; aceito como **Variable ou Secret**, a variável vence) | O workflow falha cedo se estiverem erradas. Variável **do repositório** vence a da organização (que pode ainda dizer `gearflow-fase4`). |
 | Variável do repositório | `DEPLOY_ENABLED` (`true`); opcional `KUSTOMIZE_DIR` (padrão `k8s/base`; `k8s/overlays/kong` só se houver Kong) | |
 | Environment `inventory-homologation` | (aprovação opcional) | Settings → Environments |
 
