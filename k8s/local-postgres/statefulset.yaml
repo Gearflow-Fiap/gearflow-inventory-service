@@ -2,8 +2,9 @@
 # Produção deve usar um PostgreSQL gerenciado, com backup e credenciais próprias. Instância exclusiva do Inventory:
 # nenhum outro serviço acessa este banco.
 #
-# Pré-requisito: Secret `gearflow-inventory-postgres` com a chave POSTGRES_PASSWORD (ver k8s/README.md) e uma
-# StorageClass padrão no cluster para o PVC.
+# Pré-requisito: Secret `gearflow-inventory-postgres` com a chave POSTGRES_PASSWORD (o delivery.yml cria; ver k8s/README.md).
+# Aplique pelo kustomization (`kubectl apply -k k8s/local-postgres`, ou `k8s/local-postgres-auto` no EKS Auto Mode): ele traz a
+# StorageClass `gearflow-inventory-gp3`, então não é preciso haver uma classe padrão no cluster.
 apiVersion: v1
 kind: Service
 metadata:
@@ -92,6 +93,8 @@ spec:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
+        # O PVC de um StatefulSet não muda de classe depois de criado; o perfil Auto Mode troca este valor por um patch.
+        storageClassName: gearflow-inventory-gp3
         resources:
           requests:
             storage: 5Gi

@@ -221,18 +221,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Valida o que o deploy vai aplicar (base + rota Kong) e o Postgres de exemplo.
+      # Valida o que o deploy vai aplicar: base, rota Kong e os dois perfis do Postgres (cluster convencional e EKS Auto Mode;
+      # o delivery.yml escolhe um deles lendo computeConfig.enabled do cluster).
       - name: Valida os manifestos renderizados
         run: |
           set -euo pipefail
-          for target in k8s/base k8s/overlays/kong; do
+          for target in k8s/base k8s/overlays/kong k8s/local-postgres k8s/local-postgres-auto; do
             echo "::group::$target"
             kubectl kustomize "$target" | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary
             echo "::endgroup::"
           done
-          echo "::group::k8s/local-postgres"
-          docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary < k8s/local-postgres/statefulset.yaml
-          echo "::endgroup::"
 
   sonar:
     name: SonarCloud (quality gate)

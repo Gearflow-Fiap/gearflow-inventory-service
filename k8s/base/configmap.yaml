@@ -10,7 +10,7 @@ data:
   Jwt__Issuer: GearFlow.Api
   Jwt__Audience: GearFlow.Client
 
-  # Broker compartilhado do gearflow-infra-broker (EKS gearflow-fase4): namespace `messaging`, vhost `gearflow`, AMQP na 5672 SEM TLS
+  # Broker compartilhado do gearflow-infra-broker (EKS gearflow): namespace `messaging`, vhost `gearflow`, AMQP na 5672 SEM TLS
   # (decisão do grupo em 08/11/2026; não existe listener 5671 nem CA para montar). O acesso é restrito por usuário/senha, ACL por
   # serviço e NetworkPolicy (label no namespace + label de Pod). O usuário é o `gearflow_inventory`, no Secret.
   # Para um broker com TLS (o da `main` do infra-broker até 05/11): RabbitMq__Port=5671, RabbitMq__Tls=true e
@@ -20,8 +20,11 @@ data:
   RabbitMq__VirtualHost: gearflow
   RabbitMq__Tls: "false"
 
-  # Mailpit que já roda no namespace (gearflow-infra-k8s/k8s/gearflow/smtp).
-  Smtp__Host: smtp-service
+  # Mailpit do namespace `gearflow`: o Service `mailpit` (SMTP 1025, sem TLS nem autenticação; interface web na 8025) que o perfil Academy
+  # do Billing sobe (gearflow-budget-service/k8s/academy/infrastructure.yaml). O Inventory não cria um Mailpit próprio, para não disputar o
+  # mesmo nome com o do Billing; o delivery.yml avisa (sem falhar) se o Service não existir. O `smtp-service` era do cluster da Fase 3.
+  # Sem SMTP os avisos de estoque esgotam o retry e vão para a fila `_error`; a Saga não é afetada.
+  Smtp__Host: mailpit
   Smtp__Port: "1025"
   Smtp__From: no-reply@gearflow.com
   Stock__AlertEmail: estoque@gearflow.com

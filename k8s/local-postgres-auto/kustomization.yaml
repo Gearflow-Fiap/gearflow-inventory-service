@@ -1,0 +1,30 @@
+# Perfil do Postgres de exemplo para EKS Auto Mode (mesmo padrão do `k8s-auto` do infra-broker e do `academy-auto` do Billing):
+# no Auto Mode o driver é `ebs.csi.eks.amazonaws.com` e o volume só pode ser criado em nós Auto Mode.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../local-postgres
+patches:
+  - target:
+      kind: StorageClass
+      name: gearflow-inventory-gp3
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: gearflow-inventory-gp3-auto
+      - op: replace
+        path: /provisioner
+        value: ebs.csi.eks.amazonaws.com
+      - op: add
+        path: /allowedTopologies
+        value:
+          - matchLabelExpressions:
+              - key: eks.amazonaws.com/compute-type
+                values: [auto]
+  - target:
+      kind: StatefulSet
+      name: inventory-postgres
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: gearflow-inventory-gp3-auto

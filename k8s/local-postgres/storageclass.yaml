@@ -1,0 +1,20 @@
+# StorageClass própria do Postgres de exemplo do Inventory: não depende de classe padrão (o EKS Auto Mode não cria nenhuma) nem de
+# classes de outros serviços (o Billing tem a `gearflow-gp3`, o broker a `gearflow-broker-gp3`).
+#
+# Este é o perfil para cluster CONVENCIONAL (add-on EBS CSI `ebs.csi.aws.com`). Em Auto Mode use `k8s/local-postgres-auto`, que troca o
+# provisioner. O delivery.yml escolhe o perfil lendo `computeConfig.enabled` do cluster.
+#
+# reclaimPolicy Delete: é banco de demonstração; ao apagar o PVC o volume EBS some junto e não fica disco órfão gastando crédito do
+# laboratório. Para um banco que importa, use um PostgreSQL gerenciado (ou troque para Retain e planeje a limpeza).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gearflow-inventory-gp3
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+  csi.storage.k8s.io/fstype: ext4
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
