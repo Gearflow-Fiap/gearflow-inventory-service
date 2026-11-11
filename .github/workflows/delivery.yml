@@ -16,7 +16,8 @@ name: gearflow-inventory-service.delivery
 # gearflow.io/messaging-access=true, PostgreSQL exclusivo (k8s/local-postgres, com StorageClass própria) e o Secret
 # gearflow-inventory-secret. Precisa já existir o broker (GearFlow CD do infra-broker na main dele): Service `rabbitmq` na 5672 e o
 # Secret rabbitmq-inventory-credentials no namespace `messaging`. Veja k8s/README.md.
-# Secret do repositório necessário para o bootstrap: JWT_SECRET (o segredo HMAC do grupo, >= 32 caracteres).
+# Secret necessário para o bootstrap: JWT_SECRET ou, se não existir, JWT_SIGNING_KEY (do repositório ou da organização): o segredo
+# HMAC do grupo, >= 32 caracteres, sem espaço nas pontas. Já existindo o Secret gearflow-inventory-secret no cluster, pode faltar.
 
 on:
   workflow_run:
@@ -177,7 +178,8 @@ jobs:
       - name: Prepara o namespace, o PostgreSQL e o Secret da aplicação
         id: bootstrap
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # JWT_SECRET (repositório ou organização) e, se faltar, o JWT_SIGNING_KEY da organização (a chave HMAC da Fase 3, a da Lambda).
+          JWT_SECRET: ${{ secrets.JWT_SECRET || secrets.JWT_SIGNING_KEY }}
         run: bash scripts/bootstrap-cluster.sh
 
       - name: Renderiza, valida e aplica

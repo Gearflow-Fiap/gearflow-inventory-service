@@ -443,7 +443,7 @@ Outros workflows:
 `CI`, `CodeQL` e `Docker Publish`; os nomes novos aparecem a partir do próximo push). `manifests`, `sonar` e `delivery.yml` foram escritos depois e ainda não rodaram lá; os manifestos foram
 validados localmente (kubeconform e smoke test no Docker, ver [k8s/README.md](k8s/README.md)).
 
-Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e `JWT_SECRET`, as variáveis
+Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e `JWT_SECRET` (ou o `JWT_SIGNING_KEY` da organização), as variáveis
 `EKS_CLUSTER_NAME=gearflow` e `DEPLOY_ENABLED=true` (e, opcionalmente, `AWS_ACCOUNT_ID`) neste repositório, e o broker (GearFlow CD do infra-broker) já rodando no cluster.
 
 **Branch protection da `main`** (configuração do GitHub, não dá para versionar; exige admin do repositório). Em *Settings → Branches*,
