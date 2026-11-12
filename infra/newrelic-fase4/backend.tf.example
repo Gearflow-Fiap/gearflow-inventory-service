@@ -3,7 +3,9 @@
 # Por quê: o apply local usa a User API Key de quem roda, e esse usuário precisa poder criar dashboards na conta do grupo.
 # No workspace as variáveis newrelic_account_id e newrelic_api_key ficam guardadas na organização (a chave como Sensitive).
 #
-# NÃO use o workspace gearflow-infra-k8s: ele guarda o estado do EKS/VPC/Kong da Fase 3 e só conhece o código dela.
+# NÃO use o gearflow-infra-k8s (estado do EKS/VPC/Kong da Fase 3) nem o gearflow-fase4-cluster (estado do EKS da Fase 4, do
+# gearflow-infra-broker): um workspace é UM estado. Apontar este módulo para um deles faz o Terraform planejar a DESTRUIÇÃO de tudo que
+# está no estado e não está no código deste módulo (o cluster inteiro). Use sempre um workspace só do dashboard.
 # Quem administra a organização cria o workspace antes (veja "Aplicar pelo Terraform Cloud" no README desta pasta).
 #
 # Uso:  Copy-Item backend.tf.example backend.tf   (PowerShell)   ou   cp backend.tf.example backend.tf   (bash)

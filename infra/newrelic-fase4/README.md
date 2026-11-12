@@ -45,11 +45,13 @@ Dashboard e alertas criados pelo Terraform não devem ser editados na UI (o pró
 O Terraform da Fase 3 roda na organização `gearflowfiapmurilo` do Terraform Cloud, com a conta New Relic do grupo. Uma User API Key de quem **não**
 pode criar dashboards nessa conta falha no `apply` (veja "Se o apply falhar"). Por isso este módulo pode rodar num **workspace próprio** da mesma
 organização, que guarda o ID da conta e a chave do grupo. Não use o workspace `gearflow-infra-k8s`: ele guarda o estado do EKS/VPC/Kong da Fase 3 e
-só entende o código dela.
+só entende o código dela. **Também não use o `gearflow-fase4-cluster`**, que guarda o estado do EKS da Fase 4 (`gearflow-infra-broker`, execução *Local*): um
+workspace é um único estado, e apontar este módulo para ele faria o Terraform planejar a **destruição** de tudo o que está no estado e não está no código
+daqui (o cluster inteiro). O dashboard tem ciclo de vida próprio, então fica num workspace só dele.
 
 **Quem administra a organização faz uma vez:**
 
-1. Criar o workspace `gearflow-fase4-newrelic` (fluxo *CLI-driven*, execução *Remote*). Se usar outro nome, ajuste o `backend.tf.example`.
+1. Criar o workspace `gearflow-fase4-newrelic` (fluxo *CLI-driven*, execução **Remote**: no modo *Local* o HCP só guarda o estado e **ignora** as variáveis do workspace, e o `apply` volta a depender da chave de quem o roda). Se usar outro nome, ajuste o `backend.tf.example`.
 2. Nas variáveis do workspace (categoria *Terraform variable*): `newrelic_account_id` (ID da conta do grupo) e `newrelic_api_key` (User API Key
    `NRAK-…` de um usuário que pode criar dashboards, marcada como **Sensitive**). Opcional: `dashboard_permissions`. As variáveis do workspace da
    Fase 3 **não** são herdadas e valores sensíveis não podem ser lidos de volta: preencha de novo, ou anexe um *variable set* se já existir um.

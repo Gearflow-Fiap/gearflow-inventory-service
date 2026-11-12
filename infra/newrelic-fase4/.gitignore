@@ -6,3 +6,7 @@
 terraform.tfvars
 *.auto.tfvars
 crash.log
+
+# Cópia local de backend.tf.example que liga o módulo ao workspace do Terraform Cloud; não versionar (senão todos passam a exigir o HCP).
+backend.tf
+terraform.tfvars.local-teste
