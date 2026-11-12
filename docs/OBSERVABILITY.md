@@ -89,6 +89,10 @@ terraform apply
 Foi validado com `terraform fmt -check` e `terraform validate`. **O `plan` e o `apply` ainda não foram executados**: dependem do ID
 da conta e da User API Key do grupo.
 
+**Dashboard da Fase 4 com os quatro serviços:** [`infra/newrelic-fase4`](../infra/newrelic-fase4) cria o dashboard "GearFlow — Fase 4" (fluxo
+distribuído da OS com os traces que cruzam serviços, Saga e compensação, plataforma e deploy), pensado no que o vídeo precisa mostrar. É um módulo
+separado: o Terraform da Fase 3 não serve para isso (cria o EKS da Fase 3 e filtra por `GearFlow.Api`). Veja o README da pasta.
+
 ## Pré-requisito do cluster: nri-bundle
 
 Os alertas e widgets de CPU e memória usam `K8sContainerSample`, que vem do **nri-bundle** (Helm), instalado **uma vez por cluster** por quem o

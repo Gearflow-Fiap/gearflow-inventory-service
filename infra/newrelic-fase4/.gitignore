@@ -1,0 +1,8 @@
+# Estado do Terraform, variáveis e plano contêm IDs e podem conter segredos: nunca versionar.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+crash.log
