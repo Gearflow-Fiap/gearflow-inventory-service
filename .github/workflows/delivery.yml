@@ -50,7 +50,7 @@ jobs:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Exige o CI verde para o commit exato
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const {data} = await github.rest.actions.listWorkflowRuns({
@@ -85,7 +85,7 @@ jobs:
           echo "TAG=sha-$DEPLOY_SHA" >> "$GITHUB_ENV"
 
       - name: Checkout do commit exato que passou no CI
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.DEPLOY_SHA }}
           persist-credentials: false
@@ -142,7 +142,7 @@ jobs:
           echo "Cluster $EKS_CLUSTER_NAME: Kubernetes $version, Auto Mode: $auto -> $profile"
 
       - name: Instala o kubectl compatível com o cluster
-        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4 (commit da tag)
+        uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v4 (commit da tag)
         with:
           version: ${{ steps.cluster.outputs.kubectl_version }}
 

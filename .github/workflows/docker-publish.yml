@@ -29,7 +29,7 @@ jobs:
     name: Build & push (imagem do Inventory)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
