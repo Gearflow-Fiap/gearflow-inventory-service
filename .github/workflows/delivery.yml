@@ -4,11 +4,10 @@ name: gearflow-inventory-service.delivery
 # Desligado por padrão: só roda com a variável DEPLOY_ENABLED=true. O workflow_run só dispara a partir da branch padrão (main).
 #
 # O AWS Academy NÃO tem OIDC nem permite roles novas. Por isso o acesso segue o padrão do infra-broker e do Billing:
-#   - credenciais TEMPORÁRIAS da sessão Academy como secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e AWS_SESSION_TOKEN, que
-#     expiram juntos: renove os três antes de cada teste), mais as variáveis AWS_REGION e EKS_CLUSTER_NAME. O AWS_ACCOUNT_ID é OPCIONAL
-#     (variável OU secret): informado, o login recusa credenciais de outra conta (o nome gearflow não é único entre contas Academy);
-#     vazio, não há essa conferência.
-#     Podem ser da organização, desde que liberados a este repositório; variável DO REPOSITÓRIO vence a da organização;
+#   - credenciais TEMPORÁRIAS da sessão Academy como secrets da organização (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY e
+#     AWS_SESSION_TOKEN, que expiram juntos: renove os três antes de cada teste) e as variáveis da organização AWS_REGION e
+#     EKS_CLUSTER_NAME. Este workflow só usa nomes que já existem na organização (mais DEPLOY_ENABLED, variável do repositório); eles
+#     precisam estar liberados a este repositório, e uma variável DO REPOSITÓRIO vence a da organização;
 #   - o endpoint do EKS tem de ser alcançável pelo runner: este workflow NÃO altera CIDRs (o CD do broker e o do Billing também não).
 #     Se não for, o passo "Confere o acesso ao cluster" falha dizendo isso e mostra os CIDRs do endpoint;
 #   - a imagem vem do docker-publish (tag sha-<commit>); aqui só se espera ela existir e se fixa o deploy no digest.
@@ -16,8 +15,10 @@ name: gearflow-inventory-service.delivery
 # gearflow.io/messaging-access=true, PostgreSQL exclusivo (k8s/local-postgres, com StorageClass própria) e o Secret
 # gearflow-inventory-secret. Precisa já existir o broker (GearFlow CD do infra-broker na main dele): Service `rabbitmq` na 5672 e o
 # Secret rabbitmq-inventory-credentials no namespace `messaging`. Veja k8s/README.md.
-# Secret necessário para o bootstrap: JWT_SECRET ou, se não existir, JWT_SIGNING_KEY (do repositório ou da organização): o segredo
-# HMAC do grupo, >= 32 caracteres, sem espaço nas pontas. Já existindo o Secret gearflow-inventory-secret no cluster, pode faltar.
+# Secret necessário para o bootstrap: JWT_SIGNING_KEY, da organização (o segredo HMAC do grupo, >= 32 caracteres, sem espaço nas
+# pontas). Já existindo o Secret gearflow-inventory-secret no cluster, pode faltar.
+# Secret opcional: NEW_RELIC_LICENSE_KEY (a licença INGEST - LICENSE do New Relic do grupo; da organização ou do repositório). O bootstrap a
+# grava no Secret newrelic-apm-secret do namespace e o deploy reinicia o Deployment quando ela muda. Sem ele, o Secret do cluster fica como está.
 
 on:
   workflow_run:
@@ -69,14 +70,13 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
-      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}   # variável ou secret (a variável vence), do repositório ou da organização
       AWS_PAGER: ''
       NAMESPACE: gearflow                       # o mesmo de k8s/base/kustomization.yaml
       BROKER_NAMESPACE: messaging               # onde o infra-broker instala o RabbitMQ e os Secrets rabbitmq-<serviço>-credentials
       IMAGE_REPO: ghcr.io/gearflow-fiap/gearflow-inventory-service
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-      # k8s/base por padrão. O Kong não faz parte do enunciado nem do cluster novo; para publicar a rota, KUSTOMIZE_DIR=k8s/overlays/kong.
-      KUSTOMIZE_DIR: ${{ vars.KUSTOMIZE_DIR || 'k8s/base' }}
+      # O Kong não faz parte do enunciado nem do cluster novo. Para publicar a rota /api/inventory num cluster com Kong, troque por k8s/overlays/kong.
+      KUSTOMIZE_DIR: k8s/base
     steps:
       - name: Isola os arquivos temporários do runner
         shell: bash
@@ -90,18 +90,11 @@ jobs:
           ref: ${{ env.DEPLOY_SHA }}
           persist-credentials: false
 
-      - name: Valida as variáveis (região e cluster; conta, se informada)
+      - name: Valida as variáveis (região e cluster)
         shell: bash
         run: |
           test "$AWS_REGION" = us-east-1 || { echo "::error::AWS_REGION deve ser us-east-1 (variável liberada a este repositório?)"; exit 1; }
           test "$EKS_CLUSTER_NAME" = gearflow || { echo "::error::EKS_CLUSTER_NAME deve ser gearflow (o cluster do broker e do Billing). Uma variável da organização com o valor antigo gearflow-fase4 é sobrescrita por uma variável do repositório."; exit 1; }
-          # AWS_ACCOUNT_ID é OPCIONAL (o CD do broker e o do Billing também não o exigem). Informado, o login AWS recusa credenciais de outra
-          # conta; vazio, não há essa conferência. Preenchido, tem de ter 12 dígitos.
-          if [ -z "$AWS_ACCOUNT_ID" ]; then
-            echo "::notice::AWS_ACCOUNT_ID não definido: o login não confere a conta das credenciais. Defina-o (variável ou secret) se quiser impedir deploy com uma sessão de outra conta que também tenha um cluster chamado $EKS_CLUSTER_NAME."
-          else
-            [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo "::error::AWS_ACCOUNT_ID, quando definido, deve ter 12 dígitos: a conta da sessão Academy dona do cluster gearflow. Não reaproveite o ID do laboratório antigo."; exit 1; }
-          fi
 
       # O docker-publish.yml roda em paralelo ao CI. A imagem é pública, então a consulta não precisa de login.
       - name: Aguarda a imagem no GHCR e resolve o digest
@@ -121,21 +114,21 @@ jobs:
           exit 1
 
       - name: Autentica com as credenciais temporárias do Academy
-        # v6.3.0, o mesmo commit do CD do infra-broker (que já rodou verde na organização). A v4 que estava aqui NÃO tem o input
-        # allowed-account-ids: o GitHub o ignora com um aviso, e a conferência de conta nunca valia.
+        # v6.3.0, o mesmo commit do CD do infra-broker (que já rodou verde na organização). Não conferimos a conta (allowed-account-ids):
+        # o CD do broker e o do Billing também não dependem de um ID de conta cadastrado.
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION }}
-          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID || secrets.AWS_ACCOUNT_ID }}   # opcional: vazio = sem restrição (a ação ignora o valor vazio); informado, a sessão de outra conta é recusada
           unset-current-credentials: true
           mask-aws-account-id: true
 
       # Mesmo critério do CD do broker e do Billing: a versão do kubectl vem do cluster, e o Auto Mode (que não cria StorageClass
       # padrão e usa outro driver EBS) escolhe o perfil de armazenamento do Postgres.
       - name: Lê a versão do cluster e escolhe o perfil de armazenamento do Postgres
+        id: cluster
         shell: bash
         run: |
           set -euo pipefail
@@ -144,14 +137,14 @@ jobs:
           read -r version auto <<< "$out"
           [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "::error::Versão do cluster inesperada: '$version'"; exit 1; }
           if [ "$auto" = True ] || [ "$auto" = true ]; then profile=k8s/local-postgres-auto; else profile=k8s/local-postgres; fi
-          echo "KUBECTL_VERSION=v$version.0" >> "$GITHUB_ENV"
+          echo "kubectl_version=v$version.0" >> "$GITHUB_OUTPUT"   # saída do passo, não GITHUB_ENV: o analisador do editor não enxerga o env criado em execução
           echo "POSTGRES_DIR=$profile" >> "$GITHUB_ENV"
           echo "Cluster $EKS_CLUSTER_NAME: Kubernetes $version, Auto Mode: $auto -> $profile"
 
       - name: Instala o kubectl compatível com o cluster
         uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4 (commit da tag)
         with:
-          version: ${{ env.KUBECTL_VERSION }}
+          version: ${{ steps.cluster.outputs.kubectl_version }}
 
       - name: Configura o contexto Kubernetes isolado
         run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" --kubeconfig "$KUBECONFIG" --alias gearflow-inventory-cd
@@ -178,14 +171,18 @@ jobs:
       - name: Prepara o namespace, o PostgreSQL e o Secret da aplicação
         id: bootstrap
         env:
-          # JWT_SECRET (repositório ou organização) e, se faltar, o JWT_SIGNING_KEY da organização (a chave HMAC da Fase 3, a da Lambda).
-          JWT_SECRET: ${{ secrets.JWT_SECRET || secrets.JWT_SIGNING_KEY }}
+          # O secret JWT_SIGNING_KEY da organização (a chave HMAC da Fase 3, a da Lambda); o script o lê como JWT_SECRET.
+          JWT_SECRET: ${{ secrets.JWT_SIGNING_KEY }}
+          # A licença do New Relic do grupo (chave INGEST - LICENSE, a mesma da Fase 3), da organização liberada a este repositório.
+          # Vazia, o Secret newrelic-apm-secret do cluster não é alterado. O bootstrap o grava no namespace; o OS usa o mesmo Secret.
+          NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
         run: bash scripts/bootstrap-cluster.sh
 
       - name: Renderiza, valida e aplica
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
           SECRET_CHANGED: ${{ steps.bootstrap.outputs.app_secret_changed }}
+          NEW_RELIC_SECRET_CHANGED: ${{ steps.bootstrap.outputs.newrelic_secret_changed }}
         run: |
           set -euo pipefail
           existed=$(kubectl get deployment gearflow-inventory -n "$NAMESPACE" --ignore-not-found -o name)
@@ -195,8 +192,9 @@ jobs:
           kubectl apply --dry-run=server -f "$RUNNER_TEMP/inventory.yaml"
           kubectl apply -f "$RUNNER_TEMP/inventory.yaml"
           # Pod só lê Secret na subida: se o conteúdo mudou e o Deployment já existia, reinicia para valer o valor novo.
-          if [ "$SECRET_CHANGED" = true ] && [ -n "$existed" ]; then
-            echo "O Secret gearflow-inventory-secret mudou: reiniciando o Deployment."
+          # Vale para o Secret da aplicação e para o do New Relic (a licença chega ao agente e ao header do OTLP por variável de ambiente).
+          if { [ "$SECRET_CHANGED" = true ] || [ "$NEW_RELIC_SECRET_CHANGED" = true ]; } && [ -n "$existed" ]; then
+            echo "Um Secret mudou (gearflow-inventory-secret ou newrelic-apm-secret): reiniciando o Deployment."
             kubectl rollout restart deployment/gearflow-inventory -n "$NAMESPACE"
           fi
           kubectl rollout status deployment/gearflow-inventory -n "$NAMESPACE" --timeout=300s

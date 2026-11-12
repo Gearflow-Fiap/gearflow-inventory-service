@@ -48,7 +48,7 @@ O agente e o OTLP só enviam dados se houver a license key. Sem ela, nada quebra
 
 | Variável | Valor | Onde |
 |---|---|---|
-| `NEW_RELIC_LICENSE_KEY` | License key da conta (a mesma da Fase 3) | Secret `newrelic-apm-secret`, chave `NEW_RELIC_LICENSE_KEY` (já existe no cluster da Fase 3) |
+| `NEW_RELIC_LICENSE_KEY` | License key da conta (a mesma da Fase 3) | Secret `newrelic-apm-secret`, chave `NEW_RELIC_LICENSE_KEY` (criado pelo bootstrap do deploy; ver "O que ainda depende de fora") |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `api-key=<license key>` | Deployment: monta a partir do Secret acima |
 | `Otlp__Endpoint` | `https://otlp.nr-data.net:4317` | ConfigMap (`k8s/base`) |
 | `CORECLR_*`, `NEW_RELIC_APP_NAME`, `NEW_RELIC_DISTRIBUTED_TRACING_ENABLED`, `NEW_RELIC_APPLICATION_LOGGING_*`, `NEW_RELIC_LOG_LEVEL` | Já na imagem | Dockerfile |
@@ -111,8 +111,10 @@ O `global.cluster` precisa ser igual à variável `cluster_name` de `infra/newre
 
 - Credenciais do New Relic do grupo (ID da conta e User API Key) para o `terraform apply`.
 - O `nri-bundle` no cluster `gearflow`.
-- Um Secret `newrelic-apm-secret` (chave `NEW_RELIC_LICENSE_KEY`) no namespace `gearflow`. **O bootstrap do `delivery.yml` não o cria** (a licença é
-  do grupo): `kubectl -n gearflow create secret generic newrelic-apm-secret --from-literal=NEW_RELIC_LICENSE_KEY=<licença>`. Sem ele a API sobe
-  normalmente, mas o agente e o export OTLP não reportam (o Deployment o declara como opcional).
+- Um Secret `newrelic-apm-secret` (chave `NEW_RELIC_LICENSE_KEY`) no namespace `gearflow`. **O bootstrap do `delivery.yml` o grava** a partir do
+  secret `NEW_RELIC_LICENSE_KEY` do GitHub (da organização liberado a este repositório, ou do repositório): a chave tem de ser a **INGEST - LICENSE**, não a
+  User API Key `NRAK-…` (o script recusa essa). Sem o secret do GitHub, o Secret do cluster é mantido; se também não existir, o deploy só avisa. À mão:
+  `kubectl -n gearflow create secret generic newrelic-apm-secret --from-literal=NEW_RELIC_LICENSE_KEY=<licença>`. Sem o Secret a API sobe
+  normalmente, mas o agente e o export OTLP não reportam (o Deployment o declara como opcional). Quando o valor muda, o deploy reinicia o Deployment.
 - Uma URL pública do `/health/ready`, se quiserem o monitor sintético (o Ingress do Kong só publica `/api/inventory`).
 - Os outros serviços exportarem para o mesmo New Relic para o dashboard compartilhado enxergar a Saga inteira.
