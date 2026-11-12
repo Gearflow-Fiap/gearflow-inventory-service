@@ -28,7 +28,7 @@ Responsável por:
 | BDD (Reqnroll) | ⏳ Fase 7 |
 | Imagem no GHCR (pública), CodeQL, varredura de dependências, Dependabot, gate de cobertura (unit + integração) | ✅ Rodando verde no GitHub desde 2026-11-04 (ver [seção 12](#12-cicd)) |
 | Manifests K8s (base, rota Kong, Postgres de exemplo em 2 perfis) e `scripts/bootstrap-cluster.sh` | ✅ Base/Kong validados com kubeconform e em smoke test no Docker; perfis do Postgres renderizados (kubeconform só no CI) e o script testado contra um `kubectl` falso. **Nada aplicado em cluster** ([k8s/README.md](k8s/README.md)) |
-| SonarCloud e deploy automático | 🟡 Workflows escritos e desligados por variável (`SONAR_PROJECT_KEY`, `DEPLOY_ENABLED`). O deploy segue o padrão do AWS Academy (EKS `gearflow`); depende de secrets AWS da sessão e `JWT_SECRET` no repositório, do broker já deployado e de estar na `main`; o namespace, o Postgres e o Secret o próprio deploy prepara. **Nunca rodou** |
+| SonarCloud e deploy automático | 🟡 Workflows escritos e desligados por variável (`SONAR_PROJECT_KEY`, `DEPLOY_ENABLED`). O deploy segue o padrão do AWS Academy (EKS `gearflow`); depende de secrets AWS da sessão e do `JWT_SIGNING_KEY` da organização, do broker já deployado e de estar na `main`; o namespace, o Postgres e o Secret o próprio deploy prepara. **Nunca rodou** |
 | Tracing da mensagem do RabbitMQ (fonte e medidor `MassTransit` no OpenTelemetry) e export OTLP para o New Relic no K8s | ✅ Ligado no código (testado) e nos manifestos; **ainda não visto no New Relic**, falta rodar no cluster ([seção 9](#9-configuração)) |
 | Collection Postman (13 operações + health + erros esperados) | ✅ [`docs/postman/`](docs/postman/) (conferida contra as rotas do código; **não executada** contra uma API no ar) |
 | Broker compartilhado (infra-broker): AMQP 5672 **sem TLS** (decisão do grupo, 08/11), ConfigMap e label de Pod certos. O código ainda suporta AMQPS (`RabbitMq__Tls` + CA privada, nome de host sempre validado) | ✅ Testado em 2026-11-09 com o Inventory real contra a topologia e as ACLs reais do broker: Saga OS → Inventory → OS 6/6, filas de erro e ACLs negativas ([k8s/README.md](k8s/README.md#permissões-no-broker-resolvido-e-validado-em-2026-11-09)). A versão sem TLS do broker já está na `main` dele (PR #4, 10/11) e o CD dele passou a publicar no EKS `gearflow` (PR #5); **só vale depois que esse CD rodar no cluster**. A NetworkPolicy não foi testada |
@@ -433,7 +433,7 @@ Outros workflows:
   `ghcr.io/<org>/gearflow-inventory-service` em `main`, `develop` e tags `v*`.
 - `dependabot.yml`: NuGet e GitHub Actions, semanal. O MassTransit não sobe de major (a 9.x é comercial).
 - `delivery.yml`: deploy no EKS `gearflow` (o do broker e do Billing) depois do CI da `main`, no padrão do AWS Academy (sem OIDC; credenciais
-  temporárias da sessão, conta conferida por `AWS_ACCOUNT_ID` se informado, sem mexer no endpoint). Espera a imagem `sha-<commit>`, fixa no digest, confere o
+  temporárias da sessão, sem mexer no endpoint; só usa secrets e variáveis que já existem na organização). Espera a imagem `sha-<commit>`, fixa no digest, confere o
   acesso e o broker, roda o `scripts/bootstrap-cluster.sh` (namespace + label, PostgreSQL próprio com StorageClass própria, Secret da aplicação),
   aplica com `--dry-run=server` antes, espera o rollout e testa `/health/ready`. Fica **desligado** até existir a variável `DEPLOY_ENABLED=true` e só dispara a partir da `main`.
   Pré-requisitos e limites em [k8s/README.md](k8s/README.md#deploy-automático-githubworkflowsdeliveryyml-ação-gearflow-inventory-servicedelivery).
@@ -443,8 +443,8 @@ Outros workflows:
 `CI`, `CodeQL` e `Docker Publish`; os nomes novos aparecem a partir do próximo push). `manifests`, `sonar` e `delivery.yml` foram escritos depois e ainda não rodaram lá; os manifestos foram
 validados localmente (kubeconform e smoke test no Docker, ver [k8s/README.md](k8s/README.md)).
 
-Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e `JWT_SECRET` (ou o `JWT_SIGNING_KEY` da organização), as variáveis
-`EKS_CLUSTER_NAME=gearflow` e `DEPLOY_ENABLED=true` (e, opcionalmente, `AWS_ACCOUNT_ID`) neste repositório, e o broker (GearFlow CD do infra-broker) já rodando no cluster.
+Faltam: projeto no SonarCloud (`sonar`) e, para o `delivery.yml`, os secrets AWS da sessão Academy e o `JWT_SIGNING_KEY`, as variáveis `AWS_REGION` e
+`EKS_CLUSTER_NAME=gearflow` (todos já na organização) e `DEPLOY_ENABLED=true` neste repositório, e o broker (GearFlow CD do infra-broker) já rodando no cluster.
 
 **Branch protection da `main`** (configuração do GitHub, não dá para versionar; exige admin do repositório). Em *Settings → Branches*,
 ou, com o `gh` autenticado como admin (**não executado**: conferir antes de aplicar). Os nomes dos checks são os dos *jobs*; a
