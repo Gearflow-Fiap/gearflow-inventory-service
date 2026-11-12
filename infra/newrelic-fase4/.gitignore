@@ -1,0 +1,12 @@
+# Estado do Terraform, variáveis e plano contêm IDs e podem conter segredos: nunca versionar.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.auto.tfvars
+crash.log
+
+# Cópia local de backend.tf.example que liga o módulo ao workspace do Terraform Cloud; não versionar (senão todos passam a exigir o HCP).
+backend.tf
+terraform.tfvars.local-teste
