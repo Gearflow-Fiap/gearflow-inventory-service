@@ -28,7 +28,7 @@ jobs:
       contents: read
       security-events: write   # publica os alertas em Security > Code scanning
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -42,7 +42,7 @@ jobs:
           restore-keys: nuget-
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.4
+        uses: github/codeql-action/init@v4.39.3
         with:
           languages: csharp
           # security-and-quality amplia o conjunto de queries além do default.
@@ -55,6 +55,6 @@ jobs:
           dotnet build GearFlow.Inventory.slnx -c Release --no-restore
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4.37.4
+        uses: github/codeql-action/analyze@v4.39.3
         with:
           category: "/language:csharp"
